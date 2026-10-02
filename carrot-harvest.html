@@ -1,0 +1,422 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>紅蘿蔔採收大作戰</title>
+<style>
+  :root {
+    color-scheme: light;
+    --leaf: #e6f2d3;
+    --ink: #33401f;
+    --carrot: #d9621c;
+    --soil: #7a4a2a;
+  }
+  html, body { background: var(--leaf); color: var(--ink); }
+  body {
+    margin: 0;
+    padding-block: 8px;
+    padding-inline: 16px;
+    font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  h1 {
+    margin: 4px 0 0;
+    font-size: 26px;
+    color: var(--carrot);
+    letter-spacing: 0.06em;
+    text-wrap: balance;
+    text-align: center;
+  }
+  canvas {
+    width: 100%;
+    max-width: 800px;
+    height: auto;
+    border-radius: 18px;
+    border: 4px solid var(--soil);
+    box-sizing: border-box;
+    touch-action: none;
+    outline: none;
+    background: #7cc85a;
+  }
+  canvas:focus-visible { border-color: var(--carrot); }
+  button {
+    font: inherit;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 8px 22px;
+    border-radius: 999px;
+    border: 3px solid var(--soil);
+    background: #ffd166;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button:hover { background: #ffc233; }
+  button:focus-visible { outline: 3px solid var(--carrot); outline-offset: 2px; }
+  .tip { margin: 0; font-size: 14px; opacity: 0.8; text-align: center; }
+</style>
+
+<h1>🥕 紅蘿蔔採收大作戰 🪏</h1>
+<canvas id="cv" width="800" height="520" tabindex="0"></canvas>
+<button id="again" type="button">▶️ 開始遊戲</button>
+<p class="tip">W A S D 或方向鍵移動鏟子,空白鍵挖。也可以直接用滑鼠點紅蘿蔔!</p>
+
+<script>
+// ===== 遊戲設定(想調難度就改這裡) =====
+const SETTINGS = {
+  關卡數: 3,
+  每關目標: 15,            // 每一關要挖到幾根成熟紅蘿蔔
+  生命: 3,                 // 挖錯綠色的就少一條
+  停留秒數: 2,             // 紅蘿蔔冒出來後幾秒縮回去
+  冒出間隔秒數: 0.9,       // 大約多久冒一個
+  同時最多: 3,             // 田裡同時最多幾個東西
+  綠色機率: [0.15, 0.25, 0.35], // 第1、2、3關綠色小紅蘿蔔出現的機率(輕鬆版)
+  寶物機率: 0.06,          // 冒出 💪 的機率
+  鏟子速度: 420,           // 每秒移動幾格(像素)
+  鏟子範圍: 55,            // 普通鏟子挖得到多遠
+  大鏟子範圍: 160,         // 變大後挖得到多遠(會蓋到隔壁的洞)
+  連續幾根有獎勵: 5,
+  連續獎勵分數: 5,
+};
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const btn = document.getElementById('again');
+const W = cv.width, H = cv.height;
+const 字 = '"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif';
+const 表情字 = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+// 3×3 九個土洞的位置
+const 洞 = [];
+for (const y of [185, 305, 425]) for (const x of [250, 400, 550]) 洞.push({ x, y });
+
+// ===== 遊戲狀態 =====
+let state = 'start';          // start / playing / levelup / win / lose
+let 分數 = 0, 生命 = SETTINGS.生命, 關卡 = 1, 挖到 = 0, 連續 = 0;
+let 大鏟子 = false;
+let items = [];               // 田裡冒出來的東西
+let floats = [];              // 飄起來的文字
+const 鏟子 = { x: W / 2, y: 305 };
+let 滑鼠目標 = null;
+let 冒出計時 = 0.6, 關卡計時 = 0, 挖的動畫 = 0, 時間 = 0;
+const keys = {};
+
+function 重新開始() {
+  分數 = 0; 生命 = SETTINGS.生命; 關卡 = 1; 挖到 = 0; 連續 = 0;
+  大鏟子 = false; items = []; floats = [];
+  鏟子.x = W / 2; 鏟子.y = 305; 滑鼠目標 = null;
+  冒出計時 = 0.6; 挖的動畫 = 0;
+  for (const k in keys) keys[k] = false;
+  state = 'playing';
+  更新按鈕();
+}
+
+function 更新按鈕() {
+  btn.textContent = state === 'start' ? '▶️ 開始遊戲' : '🔄 再玩一次';
+}
+
+// ===== 冒出東西 =====
+function 冒出() {
+  if (items.length >= SETTINGS.同時最多) return;
+  const 空洞 = [];
+  for (let i = 0; i < 洞.length; i++) if (!items.some(it => it.洞 === i)) 空洞.push(i);
+  if (!空洞.length) return;
+  const 洞號 = 空洞[Math.floor(Math.random() * 空洞.length)];
+  let 種類 = 'carrot';
+  const r = Math.random();
+  if (!大鏟子 && !items.some(it => it.種類 === 'power') && r < SETTINGS.寶物機率) 種類 = 'power';
+  else if (Math.random() < SETTINGS.綠色機率[關卡 - 1]) 種類 = 'green';
+  items.push({ 洞: 洞號, 種類, age: 0, life: SETTINGS.停留秒數 });
+}
+
+// ===== 挖! =====
+function 挖() {
+  if (state !== 'playing' || 挖的動畫 > 0.1) return;
+  挖的動畫 = 0.25;
+  const 範圍 = 大鏟子 ? SETTINGS.大鏟子範圍 : SETTINGS.鏟子範圍;
+  const 挖中 = items.filter(it => {
+    const h = 洞[it.洞];
+    return Math.hypot(h.x - 鏟子.x, h.y - 鏟子.y) <= 範圍;
+  });
+  if (!挖中.length) return;
+  items = items.filter(it => 挖中.indexOf(it) < 0);   // 挖到的都拿走
+
+  // 挖到綠色的 → 算挖錯
+  if (挖中.some(it => it.種類 === 'green')) {
+    生命--; 連續 = 0;
+    for (const it of 挖中) 飄字(洞[it.洞].x, 洞[it.洞].y - 40, it.種類 === 'green' ? '🌱 還沒熟!' : '', '#c0392b');
+    if (生命 <= 0) { state = 'lose'; 更新按鈕(); }
+    return;
+  }
+  for (const it of 挖中) {
+    const h = 洞[it.洞];
+    if (it.種類 === 'power') {
+      大鏟子 = true;
+      飄字(h.x, h.y - 40, '💪 鏟子變大!', '#7b3fbf');
+    } else {
+      挖到++; 分數++; 連續++;
+      飄字(h.x, h.y - 40, '+1 🥕', '#d9621c');
+      if (連續 % SETTINGS.連續幾根有獎勵 === 0) {
+        分數 += SETTINGS.連續獎勵分數;
+        飄字(h.x, h.y - 80, '🔥 連續 ' + 連續 + '!+' + SETTINGS.連續獎勵分數, '#e67e00');
+      }
+    }
+  }
+  // 過關了嗎?
+  if (挖到 >= SETTINGS.每關目標) {
+    if (關卡 >= SETTINGS.關卡數) { state = 'win'; 更新按鈕(); }
+    else {
+      關卡++; 挖到 = 0; items = []; 大鏟子 = false;
+      state = 'levelup'; 關卡計時 = 1.8; 冒出計時 = 0.6;
+    }
+  }
+}
+
+function 飄字(x, y, 文字, 顏色) {
+  if (文字) floats.push({ x, y, 文字, 顏色, age: 0 });
+}
+
+// ===== 每一格畫面都會跑的更新 =====
+function update(dt) {
+  時間 += dt;
+  for (let i = floats.length - 1; i >= 0; i--) {
+    floats[i].age += dt;
+    if (floats[i].age > 1) floats.splice(i, 1);
+  }
+  挖的動畫 = Math.max(0, 挖的動畫 - dt);
+
+  if (state === 'levelup') {
+    關卡計時 -= dt;
+    if (關卡計時 <= 0) state = 'playing';
+    return;
+  }
+  if (state !== 'playing') return;
+
+  // 移動鏟子
+  let dx = 0, dy = 0;
+  if (keys.a || keys.ArrowLeft) dx--;
+  if (keys.d || keys.ArrowRight) dx++;
+  if (keys.w || keys.ArrowUp) dy--;
+  if (keys.s || keys.ArrowDown) dy++;
+  const 速 = SETTINGS.鏟子速度 * dt;
+  if (dx || dy) {
+    滑鼠目標 = null;
+    const len = Math.hypot(dx, dy);
+    鏟子.x += dx / len * 速; 鏟子.y += dy / len * 速;
+  } else if (滑鼠目標) {
+    const ddx = 滑鼠目標.x - 鏟子.x, ddy = 滑鼠目標.y - 鏟子.y;
+    const d = Math.hypot(ddx, ddy);
+    if (d <= 速) { 鏟子.x = 滑鼠目標.x; 鏟子.y = 滑鼠目標.y; }
+    else { 鏟子.x += ddx / d * 速; 鏟子.y += ddy / d * 速; }
+  }
+  鏟子.x = Math.max(60, Math.min(W - 60, 鏟子.x));
+  鏟子.y = Math.max(110, Math.min(H - 50, 鏟子.y));
+
+  // 紅蘿蔔時間到就縮回去
+  for (let i = items.length - 1; i >= 0; i--) {
+    items[i].age += dt;
+    if (items[i].age >= items[i].life) items.splice(i, 1);
+  }
+  冒出計時 -= dt;
+  if (冒出計時 <= 0) {
+    冒出();
+    冒出計時 = SETTINGS.冒出間隔秒數 * (0.7 + Math.random() * 0.6);
+  }
+}
+
+// ===== 畫圖 =====
+function 文字(t, x, y, size, 顏色, 粗 = true, 對齊 = 'center') {
+  ctx.font = (粗 ? '700 ' : '400 ') + size + 'px ' + 字;
+  ctx.fillStyle = 顏色; ctx.textAlign = 對齊; ctx.textBaseline = 'middle';
+  ctx.fillText(t, x, y);
+}
+function 表情(e, x, y, size) {
+  ctx.font = size + 'px ' + 表情字;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(e, x, y);
+}
+function 圓角框(x, y, w, h, r, 填色) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath(); ctx.fillStyle = 填色; ctx.fill();
+}
+
+// 固定位置的小花裝飾
+const 小花 = [[70, 150, '🌼'], [730, 200, '🌷'], [90, 440, '🌻'], [720, 470, '🌼'], [140, 300, '🍀'], [680, 350, '🍀']];
+
+function 畫田() {
+  // 草地條紋
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = i % 2 ? '#79c457' : '#86cf62';
+    ctx.fillRect(0, i * 52, W, 52);
+  }
+  // 大太陽的光
+  const g = ctx.createRadialGradient(W - 30, 30, 10, W - 30, 30, 260);
+  g.addColorStop(0, 'rgba(255,240,150,0.75)'); g.addColorStop(1, 'rgba(255,240,150,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const [x, y, e] of 小花) 表情(e, x, y, 26);
+  // 九個土洞
+  for (const h of 洞) {
+    ctx.beginPath(); ctx.ellipse(h.x, h.y + 6, 58, 32, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#a0683c'; ctx.fill();
+    ctx.beginPath(); ctx.ellipse(h.x, h.y + 8, 44, 22, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#4e2e17'; ctx.fill();
+  }
+}
+
+function 畫東西() {
+  for (const it of items) {
+    const h = 洞[it.洞];
+    // 冒出來、縮回去的動畫
+    const 出 = Math.min(1, it.age / 0.15);
+    const 回 = Math.min(1, (it.life - it.age) / 0.2);
+    const s = Math.max(0, Math.min(出, 回));
+    const y = h.y - 14 - s * 10;
+    if (it.種類 === 'power') {
+      ctx.beginPath(); ctx.arc(h.x, y, 34 * s + 1, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,215,0,' + (0.55 + 0.25 * Math.sin(時間 * 10)) + ')'; ctx.fill();
+      表情('💪', h.x, y, 50 * s + 1);
+    } else if (it.種類 === 'green') {
+      表情('🌱', h.x, y, 56 * s + 1);
+    } else {
+      表情('🥕', h.x, y, 62 * s + 1);
+    }
+    // 快縮回去時顯示小時鐘圈
+    if (it.種類 !== 'green' && it.life - it.age < 0.7) {
+      ctx.beginPath();
+      ctx.arc(h.x + 40, h.y - 40, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (it.life - it.age) / 0.7);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
+    }
+  }
+}
+
+function 畫鏟子() {
+  const 範圍 = 大鏟子 ? SETTINGS.大鏟子範圍 : SETTINGS.鏟子範圍;
+  ctx.save();
+  ctx.setLineDash([10, 8]); ctx.lineWidth = 3;
+  ctx.strokeStyle = 大鏟子 ? 'rgba(255,215,0,0.95)' : 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.arc(鏟子.x, 鏟子.y, 範圍, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.translate(鏟子.x, 鏟子.y);
+  ctx.rotate(挖的動畫 > 0 ? -0.6 * Math.sin(挖的動畫 / 0.25 * Math.PI) : 0);
+  表情('🪏', 0, -10, 大鏟子 ? 96 : 60);
+  ctx.restore();
+}
+
+function 畫上方資訊() {
+  圓角框(10, 10, W - 20, 54, 14, 'rgba(255,248,225,0.93)');
+  文字('第 ' + 關卡 + ' 關', 30, 37, 22, '#7a4a2a', true, 'left');
+  文字('🥕 ' + 挖到 + ' / ' + SETTINGS.每關目標, 150, 37, 22, '#d9621c', true, 'left');
+  文字('⭐ ' + 分數 + ' 分', 310, 37, 22, '#33401f', true, 'left');
+  文字(連續 > 0 ? '🔥 連續 ' + 連續 : '', 450, 37, 20, '#e67e00', true, 'left');
+  let 心 = '';
+  for (let i = 0; i < SETTINGS.生命; i++) 心 += i < 生命 ? '❤️' : '🤍';
+  表情(心, W - 100, 37, 26);
+}
+
+function 畫飄字() {
+  for (const f of floats) {
+    ctx.globalAlpha = 1 - f.age;
+    文字(f.文字, f.x, f.y - f.age * 50, 24, f.顏色);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function 畫提示() {
+  圓角框(W / 2 - 250, H - 32, 500, 26, 13, 'rgba(255,255,255,0.8)');
+  文字(用過鍵盤 ? 'W A S D 移動 · 空白鍵挖' : '👆 鍵盤沒反應?先點一下畫面,或直接用滑鼠點紅蘿蔔',
+    W / 2, H - 19, 15, '#33401f', false);
+}
+
+function 畫大框(標題, 行們, 底) {
+  ctx.fillStyle = 'rgba(40,60,20,0.45)'; ctx.fillRect(0, 0, W, H);
+  圓角框(110, 60, W - 220, H - 120, 24, '#fff8e1');
+  文字(標題, W / 2, 110, 38, '#d9621c');
+  行們.forEach((t, i) => 文字(t, W / 2, 170 + i * 38, 21, '#33401f', false));
+  文字(底, W / 2, H - 95, 22, '#7a4a2a');
+}
+
+function draw() {
+  畫田();
+  畫東西();
+  if (state === 'playing' || state === 'levelup') 畫鏟子();
+  畫飄字();
+  畫上方資訊();
+  if (state === 'start') {
+    畫大框('🥕 紅蘿蔔採收大作戰', [
+      '🥕 挖到成熟紅蘿蔔 +1 分',
+      '🌱 綠色的還沒熟,挖到會少一條命!',
+      '💪 挖到寶物,鏟子變大一整關',
+      '🔥 連續挖對 5 根,再多 +5 分',
+      '每關挖 15 根,3 關全破就贏!',
+    ], '👆 點一下畫面,或按空白鍵開始');
+  } else if (state === 'levelup') {
+    ctx.fillStyle = 'rgba(40,60,20,0.35)'; ctx.fillRect(0, 0, W, H);
+    文字('🎉 第 ' + 關卡 + ' 關!', W / 2, H / 2 - 20, 56, '#fff');
+    文字('綠色小紅蘿蔔變多了,看清楚再挖!', W / 2, H / 2 + 40, 24, '#fff');
+  } else if (state === 'win') {
+    畫大框('🏆 你是採收大王!', ['3 關全部破關!', '總分:⭐ ' + 分數 + ' 分', '🥕🥕🥕🥕🥕'], '👆 點一下畫面或按空白鍵,再玩一次');
+  } else if (state === 'lose') {
+    畫大框('😅 差一點點!', ['挖到太多綠色小紅蘿蔔了', '你到了第 ' + 關卡 + ' 關,⭐ ' + 分數 + ' 分', '下次看清楚再挖,你可以的!'], '👆 點一下畫面或按空白鍵,再玩一次');
+  }
+  畫提示();
+}
+
+// ===== 鍵盤(用 e.code,中文輸入法也不怕) =====
+let 用過鍵盤 = false;
+function 取得焦點() { try { window.focus(); cv.focus(); } catch (e) {} }
+function 鍵名(e) {
+  const c = e.code || '';
+  if (c.indexOf('Key') === 0) return c.slice(3).toLowerCase();
+  if (c === 'Space') return ' ';
+  if (c.indexOf('Arrow') === 0) return c;
+  const k = e.key || '';
+  return k.length === 1 ? k.toLowerCase() : k;
+}
+const 遊戲鍵 = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'w', 'a', 's', 'd', ' '];
+window.addEventListener('keydown', e => {
+  const k = 鍵名(e);
+  if (遊戲鍵.indexOf(k) < 0) return;
+  e.preventDefault(); 用過鍵盤 = true;
+  keys[k] = true;
+  if (k === ' ' && !e.repeat) {
+    if (state === 'start' || state === 'win' || state === 'lose') 重新開始();
+    else 挖();
+  }
+});
+window.addEventListener('keyup', e => { keys[鍵名(e)] = false; });
+
+// ===== 滑鼠 / 觸控(備援操作) =====
+function 畫布座標(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+cv.addEventListener('pointermove', e => {
+  if (state === 'playing' && e.pointerType === 'mouse') 滑鼠目標 = 畫布座標(e);
+});
+cv.addEventListener('pointerdown', e => {
+  取得焦點();
+  if (state === 'levelup') return;
+  if (state !== 'playing') { 重新開始(); return; }
+  const p = 畫布座標(e);       // 點哪裡就在哪裡挖
+  鏟子.x = p.x; 鏟子.y = p.y; 滑鼠目標 = null;
+  挖();
+});
+window.addEventListener('pointerdown', 取得焦點);
+btn.addEventListener('click', () => { 重新開始(); 取得焦點(); });
+取得焦點();
+
+// ===== 遊戲迴圈(只啟動一次) =====
+let 上次 = 0;
+function loop(now) {
+  const dt = 上次 ? Math.min(0.05, (now - 上次) / 1000) : 0;
+  上次 = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+
+</body></html>
