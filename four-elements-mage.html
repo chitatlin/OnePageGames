@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>四元素魔法師</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #251a45; --fg: #fdf6ff; --btn: #6c4bd6; --btn-down: #9a7cff; --again: #e0558a;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #1d1438; --fg: #fdf6ff; }
+  }
+  :root[data-theme="dark"] { --bg: #1d1438; --fg: #fdf6ff; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0; padding: 8px 0; background: var(--bg); color: var(--fg); text-align: center;
+    font-family: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  }
+  h1 { font-size: 22px; margin: 2px 0 8px; letter-spacing: 2px; }
+  #cv {
+    display: block; margin: 0 auto; width: 100%; max-width: 800px; height: auto;
+    border-radius: 12px; background: #000; touch-action: none; outline: none; cursor: crosshair;
+  }
+  #cv:focus-visible { box-shadow: 0 0 0 3px #ffd84d; }
+  .ctrl { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 8px auto; max-width: 800px; padding: 0 8px; }
+  .ctrl button {
+    font-size: 18px; padding: 10px 16px; border: none; border-radius: 12px; background: var(--btn); color: #fff;
+    touch-action: none; user-select: none; -webkit-user-select: none; font-family: inherit;
+  }
+  .ctrl button:active { background: var(--btn-down); }
+  #again { background: var(--again); display: none; font-size: 20px; }
+  .tip { font-size: 14px; opacity: .85; margin: 4px 12px; }
+</style>
+</head>
+<body>
+<h1>🪄 四元素魔法師 🌪️🔥💧🪨</h1>
+<canvas id="cv" width="800" height="520" tabindex="0"></canvas>
+<div class="ctrl">
+  <button id="again">🔁 再玩一次</button>
+</div>
+<div class="ctrl">
+  <button data-btn="左轉">↺ 左轉</button>
+  <button data-btn="前進">⬆️ 前進</button>
+  <button data-btn="後退">⬇️ 後退</button>
+  <button data-btn="右轉">↻ 右轉</button>
+</div>
+<div class="tip">鍵盤不好用的時候,可以按住上面的按鈕走路,點畫面發射魔法 ✨</div>
+
+<script>
+// ================== 遊戲設定(想改難度就改這裡) ==================
+const SETTINGS = {
+  視野: 0.66,              // 看得多寬
+  走路速度: 3.0,           // 每秒走幾格
+  轉頭速度: 2.4,           // 每秒轉多少
+  血量: 10,                // 被碰 10 次才輸
+  受傷後無敵秒數: 1.0,
+  小怪同時數量: 3,         // 城堡裡永遠有 3 隻
+  小怪補回秒數: 3,         // 打倒後幾秒補回來
+  小怪出生最近距離: 6,     // 不會在主角旁邊冒出來
+  小怪血量: 10,
+  用對魔法傷害: 5,         // 用對魔法 2 下倒
+  用錯魔法傷害: 2,         // 用錯魔法 5 下倒
+  小怪速度: { 史萊姆: 1.2, 蝙蝠: 1.8, 石頭人: 0.8 },
+  掉寶石機率: 0.5,         // 一半的機會掉寶石
+  最多發數: 5,             // 魔法最多一次 5 發
+  扇形角度: 0.12,          // 好幾發散開的角度
+  魔法速度: 8,
+  施法間隔: 0.3,           // 幾秒可以再施一次
+  寶箱數: 5,               // 1 個有鑰匙,4 個有寶石
+  女王血量: 60,
+  女王用土傷害: 12,        // 用土 5 下倒
+  女王用錯傷害: 5,         // 用別的 12 下倒
+  女王叫小怪秒數: 10,      // 每 10 秒叫 1 隻
+  女王小怪上限: 3,         // 最多同時 3 隻
+};
+
+// 四種魔法
+const 魔法 = [
+  { 名: '風', 圖: '🌪️', 色: '#8ff0c8', 光: '#e4fff4' },
+  { 名: '火', 圖: '🔥', 色: '#ff7a2e', 光: '#ffd27a' },
+  { 名: '水', 圖: '💧', 色: '#3aa0ff', 光: '#c4e6ff' },
+  { 名: '土', 圖: '🪨', 色: '#c08040', 光: '#f0cc98' },
+];
+// 誰怕什麼魔法(0風 1火 2水 3土)
+const 弱點 = { 史萊姆: 1, 蝙蝠: 0, 石頭人: 2, 女王: 3 };
+const 怪獸圖示 = { 史萊姆: '🟢', 蝙蝠: '🦇', 石頭人: '🗿' };
+
+// ================== 城堡地圖 ==================
+// # 石牆  P 柱子  D 女王房的金色大門  C 寶箱  B 貓耳女王
+const 地圖文字 = [
+  '####################',
+  '#......#.....#....C#',
+  '#......#..C..#.....#',
+  '#......#.....#.....#',
+  '#..P...#..P..#..P..#',
+  '#......#.....#.....#',
+  '#......#.....#.....#',
+  '###.######.######.##',
+  '#..................#',
+  '#..................#',
+  '###.######.####D####',
+  '#......#.....#.....#',
+  '#.P..P.#.P.P.#.....#',
+  '#......#.....#.....#',
+  '#....C.#..C..#..B..#',
+  '#......#.P.P.#.....#',
+  '#.P..P.#.....#.....#',
+  '#......#.....#.....#',
+  '#..C...#.....#.....#',
+  '####################',
+];
+const MW = 20, MH = 20;
+let map = [];
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const STRIP = 2;                 // 每 2 像素算一條光線
+const COLS = Math.ceil(W / STRIP);
+const zbuf = new Array(COLS).fill(0);
+
+function 是牆格(tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return true;
+  const c = map[ty][tx];
+  return c === '#' || c === 'P' || c === 'D';
+}
+function 是牆(x, y) { return 是牆格(Math.floor(x), Math.floor(y)); }
+function 在女王房(x, y) { return x >= 14 && y >= 11; }
+
+// ================== 畫圖小工具 ==================
+function 做畫布(w, h, 畫) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  畫(c.getContext('2d'), w, h);
+  return c;
+}
+function 圓角矩形(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+function 橢圓(g, x, y, rx, ry, 色) {
+  g.fillStyle = 色; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill();
+}
+function 多邊形(g, pts, 色) {
+  g.fillStyle = 色; g.beginPath(); g.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
+  g.closePath(); g.fill();
+}
+
+// 牆壁貼圖(用程式畫的,不用外部圖片)
+const 牆貼圖 = {
+  '#': 做畫布(64, 64, g => {
+    g.fillStyle = '#6b6f8a'; g.fillRect(0, 0, 64, 64);
+    for (let r = 0; r < 4; r++) {
+      g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(0, r * 16 + 2, 64, 2);
+      g.fillStyle = '#44475e'; g.fillRect(0, r * 16, 64, 2);
+      const off = (r % 2) * 16;
+      for (let c = 0; c < 3; c++) g.fillRect(off + c * 32, r * 16, 2, 16);
+    }
+  }),
+  'P': 做畫布(64, 64, g => {
+    g.fillStyle = '#7a5aa8'; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#9677c6'; for (let i = 4; i < 64; i += 16) g.fillRect(i, 0, 6, 64);
+    g.fillStyle = '#4e3474'; g.fillRect(0, 0, 64, 5); g.fillRect(0, 59, 64, 5);
+  }),
+  'D': 做畫布(64, 64, g => {
+    g.fillStyle = '#d9a520'; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#f5cf55'; g.fillRect(4, 4, 26, 56); g.fillRect(34, 4, 26, 56);
+    g.fillStyle = '#9a6d0e'; g.fillRect(31, 0, 2, 64);
+    g.fillStyle = '#5a3a06'; g.beginPath(); g.arc(32, 32, 5, 0, Math.PI * 2); g.fill();
+    g.fillRect(30, 34, 4, 9);
+  }),
+};
+
+// ---- 小怪、女王、寶物的樣子 ----
+const 圖 = {};
+圖.史萊姆 = 做畫布(128, 128, g => {
+  g.fillStyle = '#4cd964'; g.beginPath(); g.moveTo(12, 122);
+  g.quadraticCurveTo(8, 42, 64, 36); g.quadraticCurveTo(120, 42, 116, 122); g.closePath(); g.fill();
+  橢圓(g, 44, 62, 9, 15, 'rgba(255,255,255,.35)');
+  橢圓(g, 48, 80, 11, 13, '#fff'); 橢圓(g, 80, 80, 11, 13, '#fff');
+  橢圓(g, 50, 82, 5, 7, '#222'); 橢圓(g, 82, 82, 5, 7, '#222');
+  g.strokeStyle = '#1d6b2c'; g.lineWidth = 4; g.beginPath(); g.arc(64, 94, 10, 0.2 * Math.PI, 0.8 * Math.PI); g.stroke();
+});
+圖.蝙蝠 = 做畫布(128, 128, g => {
+  多邊形(g, [58, 58, 28, 26, 4, 48, 18, 58, 8, 76, 32, 70, 42, 84, 58, 72], '#5b3b8c');
+  多邊形(g, [70, 58, 100, 26, 124, 48, 110, 58, 120, 76, 96, 70, 86, 84, 70, 72], '#5b3b8c');
+  多邊形(g, [46, 48, 50, 26, 60, 44], '#6d45a8'); 多邊形(g, [82, 48, 78, 26, 68, 44], '#6d45a8');
+  橢圓(g, 64, 64, 24, 24, '#6d45a8');
+  橢圓(g, 55, 60, 7, 8, '#fff'); 橢圓(g, 73, 60, 7, 8, '#fff');
+  橢圓(g, 56, 62, 3, 4, '#222'); 橢圓(g, 74, 62, 3, 4, '#222');
+  多邊形(g, [58, 74, 62, 74, 60, 80], '#fff'); 多邊形(g, [66, 74, 70, 74, 68, 80], '#fff');
+});
+圖.石頭人 = 做畫布(128, 128, g => {
+  const 石 = '#9a9daf', 深 = '#7c7f8f';
+  g.fillStyle = 深; g.fillRect(38, 100, 20, 26); g.fillRect(70, 100, 20, 26);
+  g.fillStyle = 石; 圓角矩形(g, 26, 50, 76, 58, 14); g.fill();
+  g.fillStyle = 深; 圓角矩形(g, 6, 56, 22, 44, 10); g.fill(); 圓角矩形(g, 100, 56, 22, 44, 10); g.fill();
+  g.fillStyle = '#aeb2c4'; 圓角矩形(g, 38, 12, 52, 42, 12); g.fill();
+  橢圓(g, 40, 70, 10, 6, '#7bb36a'); 橢圓(g, 84, 88, 8, 5, '#7bb36a');
+  橢圓(g, 54, 32, 5, 6, '#222'); 橢圓(g, 74, 32, 5, 6, '#222');
+  橢圓(g, 48, 42, 5, 3, '#f0a0b0'); 橢圓(g, 80, 42, 5, 3, '#f0a0b0');
+  g.strokeStyle = '#6a6d7c'; g.lineWidth = 2; g.beginPath(); g.moveTo(60, 60); g.lineTo(66, 74); g.lineTo(60, 86); g.stroke();
+});
+// 貓耳女王(照小設計師的角色畫的:紫頭髮、貓耳、粉紅尾巴、藍眼睛、淡紫衣服)
+圖.女王 = 做畫布(128, 192, g => {
+  const 皮 = '#fde3d6';
+  g.strokeStyle = '#f4a6b8'; g.lineWidth = 16; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(84, 140); g.quadraticCurveTo(126, 134, 112, 92); g.stroke();
+  g.fillStyle = '#c86ee0'; 圓角矩形(g, 24, 26, 80, 118, 30); g.fill();
+  g.fillStyle = '#c9a8ee'; g.fillRect(44, 126, 18, 52); g.fillRect(66, 126, 18, 52);
+  g.fillStyle = '#f7b6c6'; 圓角矩形(g, 41, 174, 22, 12, 5); g.fill(); 圓角矩形(g, 65, 174, 22, 12, 5); g.fill();
+  g.fillStyle = 皮; g.fillRect(34, 96, 10, 34); g.fillRect(84, 96, 10, 34);
+  g.fillRect(46, 92, 36, 34);
+  g.fillStyle = '#d7c2f5'; 圓角矩形(g, 43, 96, 42, 16, 6); g.fill();
+  g.fillStyle = '#c9a8ee'; g.fillRect(44, 120, 40, 12);
+  g.fillStyle = 皮; g.fillRect(58, 78, 12, 16);
+  g.fillStyle = '#222'; g.fillRect(56, 86, 16, 4);
+  橢圓(g, 64, 58, 26, 26, 皮);
+  g.fillStyle = '#d67ef0'; g.beginPath(); g.arc(64, 52, 29, Math.PI, Math.PI * 2); g.closePath(); g.fill();
+  g.fillRect(33, 50, 10, 48); g.fillRect(85, 50, 10, 48);
+  多邊形(g, [34, 36, 40, 6, 58, 28], '#f4a6b8'); 多邊形(g, [94, 36, 88, 6, 70, 28], '#f4a6b8');
+  多邊形(g, [40, 32, 42, 14, 52, 28], '#ffe6c8'); 多邊形(g, [88, 32, 86, 14, 76, 28], '#ffe6c8');
+  多邊形(g, [52, 26, 52, 14, 58, 20, 64, 10, 70, 20, 76, 14, 76, 26], '#ffd84d');
+  橢圓(g, 54, 62, 6, 7, '#2f5fc4'); 橢圓(g, 74, 62, 6, 7, '#2f5fc4');
+  橢圓(g, 56, 60, 2, 2, '#fff'); 橢圓(g, 76, 60, 2, 2, '#fff');
+  橢圓(g, 48, 70, 4, 2.5, '#f7a8b8'); 橢圓(g, 80, 70, 4, 2.5, '#f7a8b8');
+  g.fillStyle = '#e0607e'; g.beginPath(); g.arc(64, 72, 5, 0, Math.PI); g.fill();
+});
+圖.寶箱關 = 做畫布(96, 64, g => {
+  g.fillStyle = '#8b5a2b'; g.fillRect(6, 26, 84, 36);
+  g.fillStyle = '#a86e33'; 圓角矩形(g, 6, 8, 84, 22, 10); g.fill();
+  g.fillStyle = '#f2c14e'; g.fillRect(20, 8, 8, 54); g.fillRect(68, 8, 8, 54);
+  g.fillRect(42, 24, 12, 14);
+});
+圖.寶箱開 = 做畫布(96, 64, g => {
+  g.fillStyle = '#6e4420'; g.fillRect(6, 4, 84, 12);
+  g.fillStyle = '#8b5a2b'; g.fillRect(6, 26, 84, 36);
+  g.fillStyle = '#3a2410'; g.fillRect(10, 20, 76, 8);
+  g.fillStyle = '#f2c14e'; g.fillRect(20, 26, 8, 36); g.fillRect(68, 26, 8, 36);
+});
+圖.寶石 = 做畫布(64, 64, g => {
+  多邊形(g, [32, 4, 58, 24, 32, 60, 6, 24], '#39d6f0');
+  多邊形(g, [32, 4, 44, 24, 32, 60, 20, 24], '#a8f2ff');
+  多邊形(g, [6, 24, 58, 24, 32, 60], 'rgba(0,80,140,.25)');
+});
+圖.星星 = 做畫布(64, 64, g => {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? 12 : 28, a = -Math.PI / 2 + i * Math.PI / 5;
+    pts.push(32 + Math.cos(a) * r, 34 + Math.sin(a) * r);
+  }
+  多邊形(g, pts, '#ffe14d');
+});
+圖.魔法球 = 魔法.map(m => 做畫布(64, 64, g => {
+  const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+  gr.addColorStop(0, '#fff'); gr.addColorStop(0.35, m.光); gr.addColorStop(0.7, m.色); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+}));
+
+// ================== 遊戲狀態 ==================
+let state = 'start';             // start / playing / win / lose
+let t = 0, endTime = -10;
+let p, hp, shots, element, hasKey, bossActive, boss;
+let enemies, bullets, gems, stars, chests, respawns;
+let cooldown, invuln, castFlash, bossSummonTimer, winTimer;
+let msg = '', msgTimer = 0, pop = '', popTimer = 0, popColor = '#fff';
+let field = null, fieldTimer = 0;
+const keys = {};
+const btn = {};
+let aimX = W / 2, aimY = H / 2, mouseIn = false, pointerType = 'mouse', holding = false;
+let 用過鍵盤 = false;
+
+function 訊息(s) { msg = s; msgTimer = 2.5; }
+function 跳字(s, 色) { pop = s; popTimer = 0.5; popColor = 色; }
+
+function 重置資料() {
+  map = 地圖文字.map(r => r.split(''));
+  chests = [];
+  boss = { x: 16.5, y: 14.5, hp: SETTINGS.女王血量, hurt: 0, dead: false };
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    if (map[y][x] === 'C') { chests.push({ x: x + 0.5, y: y + 0.5, open: false, key: false }); map[y][x] = '.'; }
+    if (map[y][x] === 'B') { boss.x = x + 0.5; boss.y = y + 0.5; map[y][x] = '.'; }
+  }
+  chests[Math.floor(Math.random() * chests.length)].key = true;  // 鑰匙藏在其中一個
+  p = { x: 2.5, y: 2.5, a: 0.3 };
+  hp = SETTINGS.血量; shots = 1; element = 0;
+  hasKey = false; bossActive = false;
+  enemies = []; bullets = []; gems = []; stars = []; respawns = [];
+  cooldown = 0; invuln = 0; castFlash = 0; bossSummonTimer = SETTINGS.女王叫小怪秒數; winTimer = 0;
+  msg = ''; msgTimer = 0; popTimer = 0; field = null; fieldTimer = 0;
+  holding = false;
+  for (const k in keys) keys[k] = false;
+  for (let i = 0; i < SETTINGS.小怪同時數量; i++) 生小怪(false);
+}
+
+function 重新開始() {
+  if (state !== 'start' && t - endTime < 0.8) return;   // 剛結束時不要馬上誤按重來
+  重置資料();
+  state = 'playing';
+  訊息('📦 打開寶箱找鑰匙 🔑!');
+}
+
+function 生小怪(召喚, x, y) {
+  const 種類 = ['史萊姆', '蝙蝠', '石頭人'];
+  const type = 種類[Math.floor(Math.random() * 3)];
+  if (x === undefined) {
+    let ok = false;
+    for (let i = 0; i < 300 && !ok; i++) {
+      const tx = 1 + Math.floor(Math.random() * (MW - 2)), ty = 1 + Math.floor(Math.random() * (MH - 2));
+      if (map[ty][tx] !== '.') continue;
+      x = tx + 0.5; y = ty + 0.5;
+      if (在女王房(x, y)) continue;
+      if (Math.hypot(x - p.x, y - p.y) < SETTINGS.小怪出生最近距離) continue;
+      ok = true;
+    }
+    if (!ok) { x = 3.5; y = 17.5; }
+  }
+  enemies.push({ type, x, y, hp: SETTINGS.小怪血量, 召喚, hurt: 0, stun: 0.6 });
+}
+
+// ---- 算出每一格走到主角要幾步(讓怪獸會繞過牆) ----
+function 算路() {
+  field = [];
+  for (let y = 0; y < MH; y++) field.push(new Array(MW).fill(Infinity));
+  const sx = Math.floor(p.x), sy = Math.floor(p.y);
+  const q = [[sx, sy]]; field[sy][sx] = 0;
+  for (let i = 0; i < q.length; i++) {
+    const [x, y] = q[i];
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (是牆格(nx, ny) || field[ny][nx] !== Infinity) continue;
+      field[ny][nx] = field[y][x] + 1; q.push([nx, ny]);
+    }
+  }
+}
+
+// ---- 主角走路(碰到牆會滑過去) ----
+function 撞牆(x, y, r) { return 是牆(x - r, y - r) || 是牆(x + r, y - r) || 是牆(x - r, y + r) || 是牆(x + r, y + r); }
+function 碰門(x, y, r) {
+  for (const [cx, cy] of [[x - r, y - r], [x + r, y - r], [x - r, y + r], [x + r, y + r]]) {
+    const tx = Math.floor(cx), ty = Math.floor(cy);
+    if (tx >= 0 && ty >= 0 && tx < MW && ty < MH && map[ty][tx] === 'D') {
+      if (hasKey) {
+        map[ty][tx] = '.';
+        bossActive = true; field = null;
+        訊息('🚪 門打開了!貓耳女王在裡面!換上土魔法 🪨');
+      } else {
+        訊息('🔒 門鎖住了!先打開寶箱找鑰匙 🔑');
+      }
+      return;
+    }
+  }
+}
+function 走(dx, dy) {
+  const r = 0.25;
+  const nx = p.x + dx;
+  if (!撞牆(nx, p.y, r)) p.x = nx; else 碰門(nx, p.y, r);
+  const ny = p.y + dy;
+  if (!撞牆(p.x, ny, r)) p.y = ny; else 碰門(p.x, ny, r);
+}
+
+// ---- 發射魔法(往準星的方向,好幾發就散開成扇形) ----
+function 發射(screenX) {
+  if (cooldown > 0) return;
+  cooldown = SETTINGS.施法間隔; castFlash = 0.15;
+  const dX = Math.cos(p.a), dY = Math.sin(p.a);
+  const plX = -dY * SETTINGS.視野, plY = dX * SETTINGS.視野;
+  const camX = 2 * screenX / W - 1;
+  const base = Math.atan2(dY + plY * camX, dX + plX * camX);
+  for (let i = 0; i < shots; i++) {
+    const a = base + (i - (shots - 1) / 2) * SETTINGS.扇形角度;
+    bullets.push({ x: p.x + Math.cos(a) * 0.3, y: p.y + Math.sin(a) * 0.3,
+      vx: Math.cos(a) * SETTINGS.魔法速度, vy: Math.sin(a) * SETTINGS.魔法速度, life: 1.5, el: element });
+  }
+}
+
+// ---- 魔法書 ----
+const 書 = { x: W - 170, y: H - 142, w: 152, h: 100 };
+function 在書上(x, y) { return x >= 書.x - 8 && x <= 書.x + 書.w + 8 && y >= 書.y - 26 && y <= 書.y + 書.h + 10; }
+function 換魔法(x, y) {
+  const rx = 書.x + 書.w / 2 + 2, rw = 書.w / 2 - 2;
+  if (x >= rx && x <= rx + rw && y >= 書.y && y <= 書.y + 書.h) {
+    const col = x < rx + rw / 2 ? 0 : 1, row = y < 書.y + 書.h / 2 ? 0 : 1;
+    element = row * 2 + col;            // 點右頁的圖示直接選
+  } else {
+    element = (element + 1) % 4;       // 點其他地方就翻到下一頁
+  }
+  跳字(魔法[element].圖 + ' ' + 魔法[element].名 + '魔法!', 魔法[element].色);
+}
+
+// ---- 打到怪獸 ----
+function 打到(e, el) {
+  const 對 = el === 弱點[e.type];
+  e.hp -= 對 ? SETTINGS.用對魔法傷害 : SETTINGS.用錯魔法傷害;
+  e.hurt = 0.15;
+  跳字(對 ? '💥 超有效!' : '有點效…', 對 ? '#ffe14d' : '#ccc');
+  if (e.hp <= 0) {
+    enemies.splice(enemies.indexOf(e), 1);
+    for (let i = 0; i < 4; i++) stars.push({ x: e.x + (Math.random() - .5) * .4, y: e.y + (Math.random() - .5) * .4, z: 0.1, life: 0.9 });
+    if (Math.random() < SETTINGS.掉寶石機率) gems.push({ x: e.x, y: e.y });
+    if (!e.召喚) respawns.push(SETTINGS.小怪補回秒數);
+  }
+}
+function 打到女王(el) {
+  const 對 = el === 弱點.女王;
+  boss.hp -= 對 ? SETTINGS.女王用土傷害 : SETTINGS.女王用錯傷害;
+  boss.hurt = 0.15;
+  跳字(對 ? '💥 超有效!' : '有點效…', 對 ? '#ffe14d' : '#ccc');
+  if (boss.hp <= 0 && !boss.dead) {
+    boss.dead = true; boss.hp = 0;
+    for (let i = 0; i < 14; i++) stars.push({ x: boss.x + (Math.random() - .5), y: boss.y + (Math.random() - .5), z: Math.random() * .6, life: 1.4 });
+    enemies = enemies.filter(e => !e.召喚);
+    winTimer = 1.2; invuln = 5;
+    訊息('🏆 你打敗了貓耳女王!');
+  }
+}
+
+function 受傷() {
+  hp -= 1; invuln = SETTINGS.受傷後無敵秒數;
+  if (hp <= 0) { hp = 0; state = 'lose'; endTime = t; }
+}
+
+// ================== 每一格畫面的更新 ==================
+function update(dt) {
+  t += dt;
+  if (msgTimer > 0) msgTimer -= dt;
+  if (popTimer > 0) popTimer -= dt;
+  if (state !== 'playing') return;
+
+  cooldown -= dt; invuln -= dt; castFlash -= dt;
+
+  // 轉頭:方向鍵 ← →、按鈕、或滑鼠移到畫面左右邊
+  let turn = 0;
+  if (keys.ArrowLeft || btn.左轉) turn -= 1;
+  if (keys.ArrowRight || btn.右轉) turn += 1;
+  if (mouseIn && pointerType === 'mouse' && !在書上(aimX, aimY)) {
+    const k = (aimX - W / 2) / (W / 2);
+    if (Math.abs(k) > 0.6) turn += Math.sign(k) * (Math.abs(k) - 0.6) / 0.4 * 0.85;
+  }
+  p.a += turn * SETTINGS.轉頭速度 * dt;
+
+  // 走路:W 前進、S 後退、A 往左、D 往右(方向鍵 ↑ ↓ 也可以)
+  const dX = Math.cos(p.a), dY = Math.sin(p.a);
+  let mx = 0, my = 0;
+  if (keys.w || keys.ArrowUp || btn.前進) { mx += dX; my += dY; }
+  if (keys.s || keys.ArrowDown || btn.後退) { mx -= dX; my -= dY; }
+  if (keys.a) { mx += dY; my -= dX; }
+  if (keys.d) { mx -= dY; my += dX; }
+  const len = Math.hypot(mx, my);
+  if (len > 0) 走(mx / len * SETTINGS.走路速度 * dt, my / len * SETTINGS.走路速度 * dt);
+
+  // 按住滑鼠會一直施法
+  if (holding && !在書上(aimX, aimY)) 發射(aimX);
+
+  // 寶箱
+  for (const c of chests) {
+    if (c.open || Math.hypot(c.x - p.x, c.y - p.y) > 0.75) continue;
+    c.open = true;
+    if (c.key) { hasKey = true; 訊息('🔑 找到鑰匙了!去打開金色大門!'); }
+    else if (shots < SETTINGS.最多發數) { shots++; 訊息('💎 寶箱裡有寶石!魔法變成 ' + shots + ' 發!'); }
+    else 訊息('💎 寶石!你的魔法已經最強了!');
+  }
+  // 寶石
+  for (let i = gems.length - 1; i >= 0; i--) {
+    if (Math.hypot(gems[i].x - p.x, gems[i].y - p.y) < 0.6) {
+      gems.splice(i, 1);
+      if (shots < SETTINGS.最多發數) { shots++; 訊息('💎 魔法變成 ' + shots + ' 發!'); }
+      else 訊息('💎 你的魔法已經最強了!');
+    }
+  }
+
+  // 魔法球飛行
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    let 消失 = b.life <= 0 || 是牆(b.x, b.y);
+    if (!消失) {
+      for (const e of enemies) {
+        if (Math.hypot(e.x - b.x, e.y - b.y) < 0.45) { 打到(e, b.el); 消失 = true; break; }
+      }
+    }
+    if (!消失 && !boss.dead && Math.hypot(boss.x - b.x, boss.y - b.y) < 0.7) { 打到女王(b.el); 消失 = true; }
+    if (消失) bullets.splice(i, 1);
+  }
+
+  // 小怪補回來(城堡裡永遠有 3 隻)
+  for (let i = respawns.length - 1; i >= 0; i--) {
+    respawns[i] -= dt;
+    if (respawns[i] <= 0) { respawns.splice(i, 1); 生小怪(false); }
+  }
+
+  // 怪獸追主角
+  fieldTimer -= dt;
+  if (!field || fieldTimer <= 0) { 算路(); fieldTimer = 0.25; }
+  for (const e of enemies) {
+    e.hurt -= dt;
+    if (e.stun > 0) { e.stun -= dt; continue; }
+    const sp = SETTINGS.小怪速度[e.type] * dt;
+    let tx = p.x, ty = p.y;
+    const d = Math.hypot(p.x - e.x, p.y - e.y);
+    const ex = Math.floor(e.x), ey = Math.floor(e.y);
+    if (d > 1.2) {
+      let best = field[ey] ? field[ey][ex] : Infinity, bx = ex, by = ey;
+      for (const [ddx, ddy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = ex + ddx, ny = ey + ddy;
+        if (ny >= 0 && ny < MH && nx >= 0 && nx < MW && field[ny][nx] < best) { best = field[ny][nx]; bx = nx; by = ny; }
+      }
+      if (best === Infinity) continue;
+      tx = bx + 0.5; ty = by + 0.5;
+    }
+    const dx = tx - e.x, dy = ty - e.y, dl = Math.hypot(dx, dy) || 1;
+    const nx = e.x + dx / dl * sp, ny = e.y + dy / dl * sp;
+    if (!撞牆(nx, e.y, 0.2)) e.x = nx;
+    if (!撞牆(e.x, ny, 0.2)) e.y = ny;
+    // 碰到主角
+    if (Math.hypot(p.x - e.x, p.y - e.y) < 0.55 && invuln <= 0 && winTimer <= 0) {
+      受傷(); e.stun = 0.8;
+      const bx = e.x - dx / dl * 0.5, by = e.y - dy / dl * 0.5;
+      if (!撞牆(bx, by, 0.2)) { e.x = bx; e.y = by; }
+      if (state !== 'playing') return;
+    }
+  }
+  // 怪獸不要疊在一起
+  for (let i = 0; i < enemies.length; i++) for (let j = i + 1; j < enemies.length; j++) {
+    const a = enemies[i], b = enemies[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+    if (d > 0.001 && d < 0.5) {
+      const push = (0.5 - d) / 2, ux = dx / d * push, uy = dy / d * push;
+      if (!撞牆(a.x - ux, a.y - uy, 0.2)) { a.x -= ux; a.y -= uy; }
+      if (!撞牆(b.x + ux, b.y + uy, 0.2)) { b.x += ux; b.y += uy; }
+    }
+  }
+
+  // 貓耳女王
+  if (!boss.dead) {
+    boss.hurt -= dt;
+    boss.x = 16.5 + Math.sin(t * 0.8) * 1.2;
+    if (bossActive) {
+      bossSummonTimer -= dt;
+      if (bossSummonTimer <= 0) {
+        bossSummonTimer = SETTINGS.女王叫小怪秒數;
+        if (enemies.filter(e => e.召喚).length < SETTINGS.女王小怪上限) {
+          生小怪(true, boss.x + (Math.random() - .5) * .6, boss.y - 0.8);
+          訊息('👑 女王叫小怪來幫忙了!看清楚換魔法!');
+        }
+      }
+      if (Math.hypot(p.x - boss.x, p.y - boss.y) < 0.8 && invuln <= 0 && winTimer <= 0) {
+        受傷();
+        if (state !== 'playing') return;
+      }
+    }
+  }
+
+  // 星星特效
+  for (let i = stars.length - 1; i >= 0; i--) {
+    stars[i].life -= dt; stars[i].z += dt * 0.6;
+    if (stars[i].life <= 0) stars.splice(i, 1);
+  }
+
+  // 打倒女王後慶祝一下再進勝利畫面
+  if (winTimer > 0) {
+    winTimer -= dt;
+    if (winTimer <= 0) { state = 'win'; endTime = t; }
+  }
+}
+
+// ================== 畫面 ==================
+function 畫世界() {
+  const hz = H / 2;
+  let gr = ctx.createLinearGradient(0, 0, 0, hz);
+  gr.addColorStop(0, '#140c28'); gr.addColorStop(1, '#3b2a5c');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, hz);
+  gr = ctx.createLinearGradient(0, hz, 0, H);
+  gr.addColorStop(0, '#2e2836'); gr.addColorStop(1, '#6a5a50');
+  ctx.fillStyle = gr; ctx.fillRect(0, hz, W, H - hz);
+
+  const dirX = Math.cos(p.a), dirY = Math.sin(p.a);
+  const plX = -dirY * SETTINGS.視野, plY = dirX * SETTINGS.視野;
+  for (let c = 0; c < COLS; c++) {
+    const x = c * STRIP;
+    const camX = 2 * (x + STRIP / 2) / W - 1;
+    const rdx = dirX + plX * camX, rdy = dirY + plY * camX;
+    let mx = Math.floor(p.x), my = Math.floor(p.y);
+    const ddx = Math.abs(1 / rdx), ddy = Math.abs(1 / rdy);
+    let stepX, stepY, sdx, sdy;
+    if (rdx < 0) { stepX = -1; sdx = (p.x - mx) * ddx; } else { stepX = 1; sdx = (mx + 1 - p.x) * ddx; }
+    if (rdy < 0) { stepY = -1; sdy = (p.y - my) * ddy; } else { stepY = 1; sdy = (my + 1 - p.y) * ddy; }
+    let side = 0, hit = '#';
+    for (let i = 0; i < 64; i++) {
+      if (sdx < sdy) { sdx += ddx; mx += stepX; side = 0; } else { sdy += ddy; my += stepY; side = 1; }
+      const ch = (mx < 0 || my < 0 || mx >= MW || my >= MH) ? '#' : map[my][mx];
+      if (ch === '#' || ch === 'P' || ch === 'D') { hit = ch; break; }
+    }
+    const dist = Math.max(0.05, side === 0 ? sdx - ddx : sdy - ddy);
+    zbuf[c] = dist;
+    const lh = H / dist, top = hz - lh / 2;
+    let wallX = side === 0 ? p.y + dist * rdy : p.x + dist * rdx;
+    wallX -= Math.floor(wallX);
+    ctx.drawImage(牆貼圖[hit], Math.min(63, Math.floor(wallX * 64)), 0, 1, 64, x, top, STRIP, lh);
+    const shade = Math.min(0.78, dist / 13 + (side ? 0.18 : 0));
+    ctx.fillStyle = 'rgba(12,6,28,' + shade + ')';
+    ctx.fillRect(x, top, STRIP, lh);
+  }
+
+  // ---- 把怪獸、寶箱、魔法球畫上去(遠的先畫) ----
+  const list = [];
+  for (const c of chests) list.push({ x: c.x, y: c.y, img: c.open ? 圖.寶箱開 : 圖.寶箱關, size: 0.33, lift: 0 });
+  for (const g of gems) list.push({ x: g.x, y: g.y, img: 圖.寶石, size: 0.25, lift: 0.08 + Math.sin(t * 4) * 0.04 });
+  for (const e of enemies) {
+    const s = e.type === '石頭人' ? 0.8 : e.type === '蝙蝠' ? 0.42 : 0.55;
+    const l = e.type === '蝙蝠' ? 0.38 + Math.sin(t * 6 + e.x) * 0.05 : 0;
+    list.push({ x: e.x, y: e.y, img: 圖[e.type], size: s, lift: l, alpha: e.hurt > 0 ? 0.4 : 1 });
+  }
+  if (!boss.dead) list.push({ x: boss.x, y: boss.y, img: 圖.女王, size: 0.95, lift: 0, alpha: boss.hurt > 0 ? 0.4 : 1 });
+  for (const s of stars) list.push({ x: s.x, y: s.y, img: 圖.星星, size: 0.22, lift: s.z, alpha: Math.min(1, s.life * 2) });
+  for (const b of bullets) list.push({ x: b.x, y: b.y, img: 圖.魔法球[b.el], size: 0.2, lift: 0.4 });
+
+  const invDet = 1 / (plX * dirY - dirX * plY);
+  for (const s of list) {
+    const sx = s.x - p.x, sy = s.y - p.y;
+    s.tX = invDet * (dirY * sx - dirX * sy);
+    s.tY = invDet * (-plY * sx + plX * sy);
+  }
+  list.sort((a, b) => b.tY - a.tY);
+  for (const s of list) {
+    if (s.tY <= 0.15) continue;
+    const scrX = (W / 2) * (1 + s.tX / s.tY);
+    const unit = H / s.tY, h = unit * s.size, w = h * s.img.width / s.img.height;
+    const bottom = hz + unit / 2 - unit * s.lift, top = bottom - h, left = scrX - w / 2;
+    const c0 = Math.max(0, Math.floor(left / STRIP)), c1 = Math.min(COLS - 1, Math.floor((left + w) / STRIP));
+    ctx.globalAlpha = s.alpha === undefined ? 1 : s.alpha;
+    for (let c = c0; c <= c1; c++) {
+      if (s.tY >= zbuf[c]) continue;
+      const px = c * STRIP, u = (px - left) / w;
+      if (u < 0 || u >= 1) continue;
+      ctx.drawImage(s.img, Math.floor(u * s.img.width), 0, 1, s.img.height, px, top, STRIP, h);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function 畫魔杖() {
+  const m = 魔法[element];
+  const tipX = W * 0.56, tipY = H - 165;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#6e4220'; ctx.lineWidth = 16;
+  ctx.beginPath(); ctx.moveTo(W * 0.64, H + 20); ctx.lineTo(tipX, tipY); ctx.stroke();
+  ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(W * 0.625, H - 20); ctx.lineTo(W * 0.62, H - 30); ctx.stroke();
+  const r = castFlash > 0 ? 22 : 13 + Math.sin(t * 5) * 2;
+  const gr = ctx.createRadialGradient(tipX, tipY, 1, tipX, tipY, r * 2);
+  gr.addColorStop(0, '#fff'); gr.addColorStop(0.4, m.色); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(tipX, tipY, r * 2, 0, Math.PI * 2); ctx.fill();
+}
+
+function 畫書() {
+  const bob = Math.sin(t * 2.2) * 4;
+  const x = 書.x, y = 書.y + bob, w = 書.w, h = 書.h;
+  ctx.fillStyle = '#5a2d82'; 圓角矩形(ctx, x - 7, y - 7, w + 14, h + 14, 10); ctx.fill();
+  ctx.fillStyle = '#fff6e0';
+  圓角矩形(ctx, x, y, w / 2 - 2, h, 6); ctx.fill();
+  圓角矩形(ctx, x + w / 2 + 2, y, w / 2 - 2, h, 6); ctx.fill();
+  const m = 魔法[element];
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '38px sans-serif'; ctx.fillText(m.圖, x + w / 4, y + h / 2 - 10);
+  ctx.fillStyle = '#4a2a60'; ctx.font = 'bold 15px sans-serif'; ctx.fillText(m.名 + '魔法', x + w / 4, y + h - 16);
+  const rx = x + w / 2 + 2, rw = w / 2 - 2;
+  for (let i = 0; i < 4; i++) {
+    const cx = rx + (i % 2 ? rw * 0.75 : rw * 0.25), cy = y + (i < 2 ? h * 0.25 : h * 0.75);
+    if (i === element) { ctx.fillStyle = 魔法[i].色; ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.fill(); }
+    ctx.font = '22px sans-serif'; ctx.fillStyle = '#000'; ctx.fillText(魔法[i].圖, cx, cy + 1);
+  }
+  ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#fff';
+  ctx.fillText('📖 點我換魔法', x + w / 2, y - 18);
+}
+
+function 畫準星() {
+  const m = 魔法[element];
+  const x = pointerType === 'mouse' ? aimX : W / 2, y = H / 2;
+  ctx.strokeStyle = m.色; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x - 18, y); ctx.lineTo(x - 7, y); ctx.moveTo(x + 7, y); ctx.lineTo(x + 18, y);
+  ctx.moveTo(x, y - 18); ctx.lineTo(x, y - 7); ctx.moveTo(x, y + 7); ctx.lineTo(x, y + 18); ctx.stroke();
+}
+
+function 畫資訊() {
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0, 0, W, 42);
+  ctx.textBaseline = 'middle';
+  // 血條
+  ctx.textAlign = 'left'; ctx.font = '20px sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText('❤️', 12, 21);
+  ctx.fillStyle = '#442'; ctx.fillRect(42, 13, 160, 16);
+  ctx.fillStyle = hp > 3 ? '#ff4d6d' : '#ffb020'; ctx.fillRect(42, 13, 160 * hp / SETTINGS.血量, 16);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(42, 13, 160, 16);
+  // 遊戲名稱
+  ctx.textAlign = 'center'; ctx.font = 'bold 20px sans-serif'; ctx.fillStyle = '#ffe9a8';
+  ctx.fillText('四元素魔法師', W / 2, 21);
+  // 魔法發數和鑰匙
+  ctx.textAlign = 'right'; ctx.font = '17px sans-serif'; ctx.fillStyle = '#fff';
+  ctx.fillText('🌟 ' + shots + ' 發   ' + (hasKey ? '🔑 有鑰匙!' : '🔑 還沒找到'), W - 12, 21);
+  // 女王血條
+  if (bossActive && !boss.dead) {
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(W / 2 - 170, 48, 340, 28);
+    ctx.textAlign = 'left'; ctx.font = '15px sans-serif'; ctx.fillStyle = '#fff';
+    ctx.fillText('👑 貓耳女王', W / 2 - 162, 62);
+    ctx.fillStyle = '#333'; ctx.fillRect(W / 2 - 60, 55, 220, 14);
+    ctx.fillStyle = '#d67ef0'; ctx.fillRect(W / 2 - 60, 55, 220 * boss.hp / SETTINGS.女王血量, 14);
+  }
+  // 訊息
+  if (msgTimer > 0) {
+    ctx.globalAlpha = Math.min(1, msgTimer);
+    ctx.textAlign = 'center'; ctx.font = 'bold 20px sans-serif';
+    const y = bossActive && !boss.dead ? 98 : 72;
+    const w = ctx.measureText(msg).width + 30;
+    ctx.fillStyle = 'rgba(40,20,70,.8)'; 圓角矩形(ctx, W / 2 - w / 2, y - 18, w, 36, 12); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(msg, W / 2, y);
+    ctx.globalAlpha = 1;
+  }
+  if (popTimer > 0) {
+    ctx.globalAlpha = Math.min(1, popTimer * 3);
+    ctx.textAlign = 'center'; ctx.font = 'bold 18px sans-serif'; ctx.fillStyle = popColor;
+    ctx.fillText(pop, W / 2, H / 2 - 40 - (0.5 - popTimer) * 30);
+    ctx.globalAlpha = 1;
+  }
+  // 受傷變紅
+  if (invuln > SETTINGS.受傷後無敵秒數 - 0.3 && winTimer <= 0) {
+    ctx.fillStyle = 'rgba(255,40,60,.3)'; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function 畫提示() {
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, H - 28, W, 28);
+  ctx.fillStyle = '#fff'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(用過鍵盤
+    ? 'WASD 走路 ・ 滑鼠移到左右邊轉頭 ・ 點畫面施魔法 ・ 點魔法書換魔法'
+    : '👆 鍵盤沒反應?先點一下畫面,或用下面的按鈕走路', W / 2, H - 14);
+}
+
+function 畫說明畫面(標題, 行, 底色) {
+  ctx.fillStyle = 底色; ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffe9a8'; ctx.font = 'bold 40px sans-serif'; ctx.fillText(標題, W / 2, 82);
+  ctx.fillStyle = '#fff'; ctx.font = '19px sans-serif';
+  行.forEach((s, i) => ctx.fillText(s, W / 2, 150 + i * 38));
+  ctx.fillStyle = '#ffd84d'; ctx.font = 'bold 24px sans-serif';
+  ctx.globalAlpha = 0.6 + Math.sin(t * 4) * 0.4;
+  ctx.fillText('👆 點一下畫面' + (state === 'start' ? '開始!' : '再玩一次!'), W / 2, H - 60);
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  畫世界();
+  if (state === 'playing') { 畫準星(); 畫魔杖(); 畫書(); }
+  畫資訊();
+  畫提示();
+  if (state === 'start') {
+    畫說明畫面('🪄 四元素魔法師 🌪️🔥💧🪨', [
+      'WASD 走路(方向鍵也可以)',
+      '滑鼠瞄準,點一下發射魔法 ・ 滑鼠移到左右邊可以轉頭',
+      '📖 點右下角的魔法書換魔法',
+      '🟢 史萊姆怕🔥   🦇 蝙蝠怕🌪️   🗿 石頭人怕💧   👑 女王怕🪨',
+      '📦 打開寶箱找鑰匙 🔑,打開金色大門',
+      '打倒貓耳女王 👑🐱 就贏了!',
+    ], 'rgba(30,16,60,.88)');
+  } else if (state === 'win') {
+    畫說明畫面('🏆 你贏了!', ['你打敗了貓耳女王 👑🐱', '你是真正的四元素魔法師!🌪️🔥💧🪨'], 'rgba(60,40,10,.85)');
+  } else if (state === 'lose') {
+    畫說明畫面('💫 魔法師累倒了…', ['別灰心!', '記得看清楚怪獸,換上牠怕的魔法 📖'], 'rgba(40,10,30,.85)');
+  }
+}
+
+// ================== 操作(鍵盤、滑鼠、按鈕) ==================
+function 取得焦點() { try { window.focus(); cv.focus(); } catch (e) {} }
+
+// 用 e.code(實體按鍵位置)判斷,才不會被中文輸入法/Caps Lock/Shift 影響
+function 鍵名(e) {
+  const c = e.code || '';
+  if (c.indexOf('Key') === 0) return c.slice(3).toLowerCase();
+  if (c === 'Space') return ' ';
+  if (c === 'Enter') return 'Enter';
+  if (c.indexOf('Arrow') === 0) return c;
+  const k = e.key || '';
+  return k.length === 1 ? k.toLowerCase() : k;
+}
+const 遊戲鍵 = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'w', 'a', 's', 'd', ' ', 'Enter'];
+window.addEventListener('keydown', e => {
+  const k = 鍵名(e);
+  if (遊戲鍵.indexOf(k) < 0) return;
+  e.preventDefault(); 用過鍵盤 = true;
+  if (state !== 'playing') { 重新開始(); return; }
+  keys[k] = true;
+});
+window.addEventListener('keyup', e => { keys[鍵名(e)] = false; });
+
+function 畫面座標(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+cv.addEventListener('pointerdown', e => {
+  取得焦點();
+  pointerType = e.pointerType || 'mouse';
+  const q = 畫面座標(e); aimX = q.x; aimY = q.y;
+  if (state !== 'playing') { 重新開始(); return; }
+  if (在書上(q.x, q.y)) { 換魔法(q.x, q.y); return; }
+  holding = true;
+  發射(q.x);
+});
+cv.addEventListener('pointermove', e => {
+  pointerType = e.pointerType || 'mouse';
+  const q = 畫面座標(e); aimX = q.x; aimY = q.y; mouseIn = true;
+});
+cv.addEventListener('pointerleave', () => { mouseIn = false; holding = false; });
+window.addEventListener('pointerup', () => { holding = false; });
+window.addEventListener('pointerdown', 取得焦點);
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+// 下面的走路按鈕(按住就一直走)
+document.querySelectorAll('[data-btn]').forEach(b => {
+  const n = b.dataset.btn;
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault(); 取得焦點();
+    if (state !== 'playing') { 重新開始(); return; }
+    btn[n] = true;
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => { btn[n] = false; }));
+});
+const 再玩鈕 = document.getElementById('again');
+再玩鈕.addEventListener('click', () => { 取得焦點(); 重新開始(); });
+
+// ================== 開始 ==================
+重置資料();
+取得焦點();
+let last = 0;
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000 || 0);
+  last = now;
+  update(dt);
+  render();
+  再玩鈕.style.display = (state === 'win' || state === 'lose') ? 'inline-block' : 'none';
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>魔法學院：星塵的秘密</title>
+<style>
+  :root{ color-scheme: light; }
+  body{
+    margin:0; padding:8px 0;
+    background:#150e2b; color:#f3e9d2;
+    font-family:'PingFang TC','Microsoft JhengHei','Noto Sans TC','Segoe UI',sans-serif;
+    text-align:center;
+  }
+  h1{ font-size:20px; margin:0 0 8px; letter-spacing:2px; color:#f0c96a; font-weight:600; }
+  canvas{ background:#1d1440; border-radius:12px; box-shadow:0 0 0 2px #4a3a80; touch-action:none; }
+  .tip{ margin-top:8px; font-size:13px; color:#b9a9e0; }
+</style>
+</head>
+<body>
+
+<h1>✨ 魔法學院：星塵的秘密 ✨</h1>
+<canvas id="cv" width="800" height="560"></canvas>
+<div class="tip" id="tip">👆 先點一下畫面，就可以開始玩囉！</div>
+
+<script>
+/* ===================== 所有可以調整的數字，全部放這裡 ===================== */
+const SETTINGS = {
+  主角血量: 150,
+  小怪血量: 60,
+  魔王血量: 200,
+  小怪傷害: 10,
+  魔王傷害: 25,
+  選對傷害: 30,   // 屬性剋制成功
+  選錯傷害: 5,    // 屬性選錯
+  星塵傷害: 50,   // 超強法術，每場限用一次
+  顏色: { 火:'#ff7a45', 草:'#5ad46a', 水:'#4fc3f7', 金:'#f0c96a', 底:'#1d1440' }
+};
+
+/* 屬性剋制：火剋草、草剋水、水剋火 */
+const 剋制 = { 火:'草', 草:'水', 水:'火' };
+
+/* ===================== 法術資料 ===================== */
+const 全部法術 = {
+  火球術:  { 名:'火球術', emoji:'🔥', 屬性:'火' },
+  藤蔓術:  { 名:'藤蔓術', emoji:'🌿', 屬性:'草' },
+  水流術:  { 名:'水流術', emoji:'💧', 屬性:'水' },
+  星塵爆:  { 名:'星塵爆', emoji:'🌟', 屬性:'星', 限用一次:true }
+};
+
+/* ===================== 藥水配方 ===================== */
+const 配方 = [
+  { 法術:'水流術', 需要:{ 水滴:1, 草藥:1 },              說明:'2 種材料 · 學會水屬性法術' },
+  { 法術:'星塵爆', 需要:{ 星塵:1, 暗影粉:1, 雷石:1 },     說明:'3 種材料 · 一擊 50 點，每場限用 1 次' }
+];
+
+const 材料圖 = { 草藥:'🌿', 火晶:'🔥', 水滴:'💧', 雷石:'⚡', 暗影粉:'🌑', 星塵:'✨' };
+
+/* ===================== 七場戰鬥 ===================== */
+const 敵人們 = [
+  { 名:'幽靈同學', emoji:'👻', 屬性:'草', 血:SETTINGS.小怪血量, 傷:SETTINGS.小怪傷害,
+    掉落:['水滴','火晶'],
+    劇情:['入學第一天，你抱著新魔杖走在長長的走廊上。',
+          '一個透明的身影從牆裡飄了出來，對你眨眨眼。',
+          '幽靈同學：「新來的？敢不敢跟我比一場！」'] },
+
+  { 名:'魔法蜘蛛', emoji:'🕷️', 屬性:'水', 血:SETTINGS.小怪血量, 傷:SETTINGS.小怪傷害,
+    掉落:['草藥','水滴'],
+    劇情:['老師派你去藥草園摘草藥。',
+          '你伸手的瞬間，一張濕答答的網從樹上垂了下來。',
+          '魔法蜘蛛沙沙地爬出來，眼睛亮起藍光。'] },
+
+  { 名:'對手同學', emoji:'🧑‍🎓', 屬性:'火', 血:SETTINGS.小怪血量, 傷:SETTINGS.小怪傷害,
+    掉落:['雷石','暗影粉'],
+    劇情:['魔法對決比賽開始了，全校都在看台上。',
+          '對手同學的魔杖冒出橘紅色的火花。',
+          '對手同學：「聽說你只會火跟草？那你今天贏不了我。」'] },
+
+  { 名:'石化魔蛇', emoji:'🐍', 屬性:'草', 血:SETTINGS.小怪血量, 傷:SETTINGS.小怪傷害,
+    掉落:['星塵','火晶'],
+    劇情:['地下室的門縫透出微光，你悄悄推開它。',
+          '一條纏滿藤蔓的長蛇盤在寶箱上，慢慢抬起頭。',
+          '牠的眼睛一亮 —— 別被看太久！'] },
+
+  { 名:'高年級學長', emoji:'🧙', 屬性:'水', 血:SETTINGS.小怪血量, 傷:SETTINGS.小怪傷害,
+    掉落:['雷石','暗影粉'],
+    劇情:['畢業考試的最後一關，是跟高年級學長對決。',
+          '他的魔杖轉了一圈，走廊上的水全部浮了起來。',
+          '學長：「來吧，讓我看看你這學期學了什麼。」'] },
+
+  { 名:'魔王手下', emoji:'🧛', 屬性:'火', 血:SETTINGS.小怪血量, 傷:SETTINGS.小怪傷害,
+    掉落:['星塵','草藥'],
+    劇情:['半夜，學校的燈全部熄滅了。',
+          '一個披著黑斗篷的人站在大廳中央，腳邊燒著火焰。',
+          '魔王手下：「星塵在哪裡？交出來，我就放過你。」'] },
+
+  { 名:'大魔王', emoji:'👑', 屬性:'水', 血:SETTINGS.魔王血量, 傷:SETTINGS.魔王傷害,
+    掉落:[],
+    劇情:['最高的塔頂，星星在你頭上轉。',
+          '大魔王站在那裡，手裡握著整片發光的星塵。',
+          '大魔王：「這座學校的秘密，本來就該是我的。」',
+          '這是最後一戰了。深呼吸，想清楚再出手！'] }
+];
+
+/* ===================== 遊戲狀態 ===================== */
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+let state, 關卡, 玩家血, 敵人血, 劇情行, 手上法術, 材料, 星塵已用;
+let 戰鬥訊息, 動畫, 誰的回合, 按鈕區, 用過鍵盤 = false, 剛得到 = [];
+
+function 重新開始(){
+  state = 'story';
+  關卡 = 0;
+  玩家血 = SETTINGS.主角血量;
+  敵人血 = 敵人們[0].血;
+  劇情行 = 0;
+  手上法術 = ['火球術','藤蔓術'];   // 新生一開始只會火和草
+  材料 = { 草藥:0, 火晶:0, 水滴:0, 雷石:0, 暗影粉:0, 星塵:0 };
+  星塵已用 = false;
+  戰鬥訊息 = '';
+  動畫 = null;
+  誰的回合 = '玩家';
+  剛得到 = [];
+}
+
+function 開始這一關(){
+  敵人血 = 敵人們[關卡].血;
+  星塵已用 = false;
+  誰的回合 = '玩家';
+  戰鬥訊息 = '輪到你了！看看敵人是什麼顏色，選能剋牠的法術。';
+  動畫 = null;
+  state = 'battle';
+}
+
+/* ===================== 畫圖小工具 ===================== */
+function 圓角(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+function 換行寫字(文字, x, y, 最寬, 行高){
+  const 字 = 文字.split('');
+  let 行 = '';
+  for(let i=0;i<字.length;i++){
+    const 試 = 行 + 字[i];
+    if(ctx.measureText(試).width > 最寬 && 行 !== ''){
+      ctx.fillText(行, x, y); 行 = 字[i]; y += 行高;
+    } else { 行 = 試; }
+  }
+  ctx.fillText(行, x, y);
+  return y;
+}
+
+function 血條(x,y,w,現在,最多,色,標題){
+  ctx.fillStyle = '#3a2d66'; 圓角(x,y,w,16,8); ctx.fill();
+  const 比例 = Math.max(0, 現在/最多);
+  ctx.fillStyle = 色; 圓角(x,y,Math.max(4,w*比例),16,8); ctx.fill();
+  ctx.fillStyle = '#f3e9d2'; ctx.font = '13px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(標題 + '  ' + Math.max(0,現在) + ' / ' + 最多, x, y-6);
+}
+
+/* 畫左下角的魔杖（第一人稱：你自己的手） */
+function 畫魔杖(發光){
+  ctx.save();
+  ctx.translate(120, H-60);
+  ctx.rotate(-0.5);
+  ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0,60); ctx.lineTo(0,-60); ctx.stroke();
+  ctx.strokeStyle = '#c9a35e'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(0,20); ctx.lineTo(0,10); ctx.stroke();
+  if(發光){
+    ctx.fillStyle = 發光; ctx.globalAlpha = .85;
+    ctx.beginPath(); ctx.arc(0,-66,14,0,7); ctx.fill();
+    ctx.globalAlpha = .3;
+    ctx.beginPath(); ctx.arc(0,-66,26,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ===================== 各個畫面 ===================== */
+function 畫開始畫面(){
+  ctx.fillStyle = SETTINGS.底; ctx.fillRect(0,0,W,H);
+  // 背景星星
+  for(let i=0;i<40;i++){
+    ctx.fillStyle = 'rgba(255,255,255,'+(0.15+((i*37)%50)/200)+')';
+    ctx.fillRect((i*97)%W, (i*53)%260, 2, 2);
+  }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = SETTINGS.顏色.金; ctx.font = 'bold 40px sans-serif';
+  ctx.fillText('魔法學院：星塵的秘密', W/2, 110);
+  ctx.font = '54px sans-serif'; ctx.fillText('🏰  🪄  ✨', W/2, 180);
+
+  ctx.fillStyle = '#d9cdf0'; ctx.font = '17px sans-serif'; ctx.textAlign = 'left';
+  const 說明 = [
+    '你是魔法學校的新生。用魔杖打倒 7 個對手，成為真正的魔法師！',
+    '',
+    '⚔️  屬性剋制：🔥 火剋草   🌿 草剋水   💧 水剋火',
+    '　　選對打 30 點，選錯只有 5 點。看敵人的光圈顏色就知道！',
+    '❤️  你有 150 血，血歸零就輸了。',
+    '🧪  打贏會掉 2 個材料，收集材料可以調藥水、學新法術。',
+    '🖱️  點法術按鈕，或按鍵盤 1 2 3 4 都可以。'
+  ];
+  let y = 250;
+  說明.forEach(s=>{ ctx.fillText(s, 140, y); y += 30; });
+
+  按鈕區 = [];
+  const bx = W/2-110, by = H-90;
+  ctx.fillStyle = SETTINGS.顏色.金; 圓角(bx,by,220,52,26); ctx.fill();
+  ctx.fillStyle = '#241a4a'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('開始冒險 ▶', W/2, by+34);
+  按鈕區.push({x:bx,y:by,w:220,h:52,做:()=>{ 劇情行 = 0; state = 'story'; }, 記:'開始'});
+
+  ctx.fillStyle = '#a494d0'; ctx.font = '13px sans-serif';
+  ctx.fillText(用過鍵盤 ? '按空白鍵也可以開始' : '👆 鍵盤沒反應？先點一下畫面，或直接用滑鼠玩', W/2, H-18);
+}
+
+function 畫劇情(){
+  const 敵 = 敵人們[關卡];
+  ctx.fillStyle = SETTINGS.底; ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#8f7fc0'; ctx.font = '16px sans-serif';
+  ctx.fillText('第 ' + (關卡+1) + ' 關 / 7', W/2, 40);
+
+  ctx.font = '100px sans-serif'; ctx.globalAlpha = .5;
+  ctx.fillText(敵.emoji, W/2, 190); ctx.globalAlpha = 1;
+
+  // 對話框
+  ctx.fillStyle = '#2a1f57'; 圓角(60, 250, W-120, 200, 16); ctx.fill();
+  ctx.strokeStyle = '#5b4a9a'; ctx.lineWidth = 2; ctx.stroke();
+
+  ctx.fillStyle = '#f3e9d2'; ctx.font = '20px sans-serif'; ctx.textAlign = 'left';
+  let y = 295;
+  for(let i=0;i<=劇情行 && i<敵.劇情.length;i++){
+    y = 換行寫字(敵.劇情[i], 90, y, W-180, 30) + 38;
+  }
+
+  按鈕區 = [];
+  const 最後 = 劇情行 >= 敵.劇情.length-1;
+  const bx = W/2-110, by = H-80;
+  ctx.fillStyle = 最後 ? SETTINGS.顏色.金 : '#5b4a9a'; 圓角(bx,by,220,50,25); ctx.fill();
+  ctx.fillStyle = 最後 ? '#241a4a' : '#f3e9d2'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(最後 ? '開始戰鬥 ⚔️' : '繼續 ▶', W/2, by+33);
+  按鈕區.push({x:bx,y:by,w:220,h:50, 做:()=>{
+    if(劇情行 < 敵.劇情.length-1) 劇情行++;
+    else 開始這一關();
+  }, 記:'繼續'});
+}
+
+function 畫戰鬥(){
+  const 敵 = 敵人們[關卡];
+  const 敵色 = SETTINGS.顏色[敵.屬性] || SETTINGS.顏色.金;
+
+  ctx.fillStyle = SETTINGS.底; ctx.fillRect(0,0,W,H);
+
+  // 上方血條
+  血條(40, 40, 280, 玩家血, SETTINGS.主角血量, '#ff5c8a', '❤️ 你');
+  血條(W-320, 40, 280, 敵人血, 敵.血, 敵色, 敵.emoji + ' ' + 敵.名);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#8f7fc0'; ctx.font = '14px sans-serif';
+  ctx.fillText('第 ' + (關卡+1) + ' / 7 關', W/2, 54);
+
+  // 敵人（有屬性光圈）
+  const 抖 = (動畫 && 動畫.類型==='敵人受傷') ? Math.sin(動畫.t*40)*8 : 0;
+  ctx.save(); ctx.translate(W/2 + 抖, 200);
+  ctx.globalAlpha = .22; ctx.fillStyle = 敵色;
+  ctx.beginPath(); ctx.arc(0,0,86,0,7); ctx.fill();
+  ctx.globalAlpha = .5; ctx.strokeStyle = 敵色; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(0,0,86,0,7); ctx.stroke();
+  ctx.globalAlpha = 1; ctx.font = '96px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(敵.emoji, 0, 34);
+  ctx.restore();
+
+  ctx.fillStyle = 敵色; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('屬性：' + 敵.屬性, W/2, 312);
+
+  // 魔杖
+  畫魔杖(動畫 && 動畫.類型==='玩家出招' ? 動畫.色 : null);
+
+  // 飛行中的法術
+  if(動畫 && 動畫.類型==='玩家出招'){
+    const p = Math.min(1, 動畫.t/0.45);
+    const x = 120 + (W/2-120)*p, y = (H-130) + (215-(H-130))*p;
+    ctx.font = '44px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(動畫.emoji, x, y);
+  }
+  if(動畫 && 動畫.類型==='敵人出招'){
+    const p = Math.min(1, 動畫.t/0.45);
+    const x = W/2 + (150-W/2)*p, y = 215 + ((H-120)-215)*p;
+    ctx.font = '40px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('💥', x, y);
+  }
+
+  // 訊息框
+  ctx.fillStyle = '#2a1f57'; 圓角(40, 336, W-80, 74, 12); ctx.fill();
+  ctx.strokeStyle = '#5b4a9a'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#f3e9d2'; ctx.font = '18px sans-serif'; ctx.textAlign = 'left';
+  換行寫字(戰鬥訊息, 62, 368, W-124, 26);
+
+  // 法術按鈕
+  按鈕區 = [];
+  const 可按 = (誰的回合==='玩家' && !動畫);
+  const n = 手上法術.length;
+  const bw = 168, gap = 14;
+  let sx = W/2 - (n*bw + (n-1)*gap)/2;
+  手上法術.forEach((id, i)=>{
+    const s = 全部法術[id];
+    const x = sx + i*(bw+gap), y = 430;
+    const 用完 = (s.限用一次 && 星塵已用);
+    const 色 = SETTINGS.顏色[s.屬性] || SETTINGS.顏色.金;
+    ctx.globalAlpha = (可按 && !用完) ? 1 : .38;
+    ctx.fillStyle = '#2f2364'; 圓角(x,y,bw,64,12); ctx.fill();
+    ctx.strokeStyle = 色; ctx.lineWidth = 3; ctx.stroke();
+    ctx.textAlign = 'left'; ctx.font = '30px sans-serif';
+    ctx.fillStyle = '#fff'; ctx.fillText(s.emoji, x+14, y+44);
+    ctx.font = 'bold 18px sans-serif'; ctx.fillStyle = 色;
+    ctx.fillText(s.名, x+58, y+30);
+    ctx.font = '12px sans-serif'; ctx.fillStyle = '#c3b5e8';
+    ctx.fillText(用完 ? '這場已用過' : (s.限用一次 ? '50 點 · 限 1 次' : '屬性 ' + s.屬性), x+58, y+50);
+    ctx.font = '12px sans-serif'; ctx.fillStyle = '#8f7fc0';
+    ctx.fillText('鍵盤 ' + (i+1), x+bw-46, y+50);
+    ctx.globalAlpha = 1;
+    if(可按 && !用完) 按鈕區.push({x:x,y:y,w:bw,h:64, 做:()=>玩家出招(id), 記:String(i+1)});
+  });
+
+  ctx.textAlign = 'center'; ctx.fillStyle = '#a494d0'; ctx.font = '13px sans-serif';
+  ctx.fillText(用過鍵盤 ? '點按鈕，或按鍵盤 1 2 3 4 出招' :
+    '👆 鍵盤沒反應？先點一下畫面，或直接用滑鼠點按鈕', W/2, H-18);
+}
+
+function 畫勝利結算(){
+  ctx.fillStyle = SETTINGS.底; ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = SETTINGS.顏色.金; ctx.font = 'bold 36px sans-serif';
+  ctx.fillText('你打贏了 ' + 敵人們[關卡].名 + '！', W/2, 110);
+  ctx.font = '76px sans-serif'; ctx.fillText('🎉', W/2, 200);
+
+  ctx.fillStyle = '#f3e9d2'; ctx.font = '20px sans-serif';
+  ctx.fillText('掉落材料：', W/2, 262);
+  ctx.font = '30px sans-serif';
+  ctx.fillText(剛得到.map(m=>材料圖[m]+' '+m).join('　　'), W/2, 306);
+  ctx.fillStyle = '#5ad46a'; ctx.font = '18px sans-serif';
+  ctx.fillText('🛏️ 你回宿舍睡了一覺，血補滿了！　❤️ ' + 玩家血 + ' / ' + SETTINGS.主角血量, W/2, 352);
+
+  按鈕區 = [];
+  const bx = W/2-120, by = H-120;
+  ctx.fillStyle = SETTINGS.顏色.金; 圓角(bx,by,240,54,27); ctx.fill();
+  ctx.fillStyle = '#241a4a'; ctx.font = 'bold 20px sans-serif';
+  ctx.fillText('去藥水調配室 🧪', W/2, by+35);
+  按鈕區.push({x:bx,y:by,w:240,h:54, 做:()=>{ state='craft'; }, 記:'下一步'});
+}
+
+function 畫調配室(){
+  ctx.fillStyle = SETTINGS.底; ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = SETTINGS.顏色.金; ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('🧪 藥水調配室', W/2, 52);
+
+  // 材料清單
+  ctx.fillStyle = '#2a1f57'; 圓角(60, 74, W-120, 62, 12); ctx.fill();
+  ctx.font = '20px sans-serif'; ctx.textAlign = 'left';
+  let x = 88;
+  Object.keys(材料).forEach(m=>{
+    ctx.fillStyle = 材料[m] > 0 ? '#f3e9d2' : '#5b4a9a';
+    ctx.fillText(材料圖[m] + ' ' + 材料[m], x, 114);
+    x += 112;
+  });
+
+  按鈕區 = [];
+  let y = 158;
+  配方.forEach(r=>{
+    const 已學 = 手上法術.indexOf(r.法術) >= 0;
+    const 夠 = Object.keys(r.需要).every(m => 材料[m] >= r.需要[m]);
+    const s = 全部法術[r.法術];
+    ctx.fillStyle = '#2a1f57'; 圓角(60, y, W-120, 104, 12); ctx.fill();
+    ctx.strokeStyle = 已學 ? '#5b4a9a' : (夠 ? SETTINGS.顏色.金 : '#3d2f78');
+    ctx.lineWidth = 2; ctx.stroke();
+
+    ctx.textAlign = 'left'; ctx.font = '34px sans-serif'; ctx.fillStyle = '#fff';
+    ctx.fillText(s.emoji, 84, y+50);
+    ctx.font = 'bold 21px sans-serif'; ctx.fillStyle = SETTINGS.顏色[s.屬性] || SETTINGS.顏色.金;
+    ctx.fillText(s.名, 130, y+40);
+    ctx.font = '14px sans-serif'; ctx.fillStyle = '#c3b5e8';
+    ctx.fillText(r.說明, 130, y+62);
+    ctx.font = '18px sans-serif'; ctx.fillStyle = '#f3e9d2';
+    ctx.fillText('需要： ' + Object.keys(r.需要).map(m=>材料圖[m]+' '+m+' ×'+r.需要[m]).join('　'), 130, y+88);
+
+    const bx = W-260, by = y+30;
+    if(已學){
+      ctx.fillStyle = '#4a3a80'; 圓角(bx,by,170,44,22); ctx.fill();
+      ctx.fillStyle = '#c3b5e8'; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('已經學會 ✓', bx+85, by+29);
+    } else if(夠){
+      ctx.fillStyle = SETTINGS.顏色.金; 圓角(bx,by,170,44,22); ctx.fill();
+      ctx.fillStyle = '#241a4a'; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('調配並學會', bx+85, by+29);
+      按鈕區.push({x:bx,y:by,w:170,h:44, 做:()=>調配(r)});
+    } else {
+      ctx.fillStyle = '#332764'; 圓角(bx,by,170,44,22); ctx.fill();
+      ctx.fillStyle = '#7a68b0'; ctx.font = '15px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('材料還不夠', bx+85, by+29);
+    }
+    y += 122;
+  });
+
+  const bx = W/2-130, by = H-84;
+  ctx.fillStyle = '#5b4a9a'; 圓角(bx,by,260,52,26); ctx.fill();
+  ctx.fillStyle = '#f3e9d2'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('前往第 ' + (關卡+2) + ' 關 ▶', W/2, by+34);
+  按鈕區.push({x:bx,y:by,w:260,h:52, 做:()=>{ 關卡++; 劇情行 = 0; state='story'; }, 記:'下一步'});
+}
+
+function 調配(r){
+  Object.keys(r.需要).forEach(m => 材料[m] -= r.需要[m]);
+  手上法術.push(r.法術);
+}
+
+function 畫結局(贏了){
+  ctx.fillStyle = SETTINGS.底; ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+  if(贏了){
+    for(let i=0;i<60;i++){
+      ctx.fillStyle = 'rgba(240,201,106,'+(0.2+((i*31)%60)/150)+')';
+      ctx.fillRect((i*83)%W, (i*61)%H, 3, 3);
+    }
+    ctx.fillStyle = SETTINGS.顏色.金; ctx.font = 'bold 44px sans-serif';
+    ctx.fillText('你成為大魔法師了！', W/2, 130);
+    ctx.font = '80px sans-serif'; ctx.fillText('🧙 ✨ 🏆', W/2, 230);
+    ctx.fillStyle = '#f3e9d2'; ctx.font = '19px sans-serif';
+    ctx.fillText('大魔王手上的星塵散開，變成滿天的星星飄回學校。', W/2, 300);
+    ctx.fillText('從什麼都不會的新生，到打倒大魔王 —— 你辦到了。', W/2, 334);
+    ctx.fillStyle = '#c3b5e8'; ctx.font = '17px sans-serif';
+    ctx.fillText('剩餘血量：' + 玩家血 + ' ❤️　　學會的法術：' + 手上法術.length + ' 個', W/2, 376);
+  } else {
+    ctx.fillStyle = '#ff8fa8'; ctx.font = 'bold 40px sans-serif';
+    ctx.fillText('你的魔力用完了…', W/2, 140);
+    ctx.font = '76px sans-serif'; ctx.fillText('🪄 💤', W/2, 232);
+    ctx.fillStyle = '#f3e9d2'; ctx.font = '19px sans-serif';
+    ctx.fillText('校醫把你送回宿舍休息。沒關係，再來一次就好！', W/2, 300);
+    ctx.fillStyle = '#c3b5e8'; ctx.font = '17px sans-serif';
+    ctx.fillText('小提示：看敵人光圈的顏色 —— 🔥 火剋草、🌿 草剋水、💧 水剋火', W/2, 344);
+    ctx.fillText('你倒在第 ' + (關卡+1) + ' 關：' + 敵人們[關卡].名, W/2, 376);
+  }
+
+  按鈕區 = [];
+  const bx = W/2-110, by = H-110;
+  ctx.fillStyle = SETTINGS.顏色.金; 圓角(bx,by,220,54,27); ctx.fill();
+  ctx.fillStyle = '#241a4a'; ctx.font = 'bold 21px sans-serif';
+  ctx.fillText('再玩一次 🔄', W/2, by+35);
+  按鈕區.push({x:bx,y:by,w:220,h:54, 做:()=>{ 重新開始(); }, 記:'重玩'});
+
+  ctx.fillStyle = '#a494d0'; ctx.font = '13px sans-serif';
+  ctx.fillText('點按鈕，或按空白鍵重新開始', W/2, H-24);
+}
+
+/* ===================== 戰鬥邏輯 ===================== */
+function 玩家出招(id){
+  if(誰的回合 !== '玩家' || 動畫) return;
+  const s = 全部法術[id];
+  const 敵 = 敵人們[關卡];
+  let 傷害, 話;
+
+  if(s.限用一次){
+    if(星塵已用) return;
+    星塵已用 = true;
+    傷害 = SETTINGS.星塵傷害;
+    話 = '🌟 星塵爆炸開來！造成 ' + 傷害 + ' 點傷害，好強！';
+  } else if(剋制[s.屬性] === 敵.屬性){
+    傷害 = SETTINGS.選對傷害;
+    話 = '✨ 屬性剋到了！' + s.名 + ' 造成 ' + 傷害 + ' 點傷害！';
+  } else {
+    傷害 = SETTINGS.選錯傷害;
+    話 = '😣 屬性不合，' + s.名 + ' 只造成 ' + 傷害 + ' 點傷害…';
+  }
+
+  敵人血 -= 傷害;
+  戰鬥訊息 = 話;
+  動畫 = { 類型:'玩家出招', t:0, 長:0.55, emoji:s.emoji,
+           色:(SETTINGS.顏色[s.屬性] || SETTINGS.顏色.金),
+           結束:()=>{
+             if(敵人血 <= 0){ 敵人血 = 0; 贏了這一關(); }
+             else {
+               誰的回合 = '敵人';
+               動畫 = { 類型:'等一下', t:0, 長:0.5, 結束:()=>敵人出招() };
+             }
+           } };
+}
+
+function 敵人出招(){
+  const 敵 = 敵人們[關卡];
+  玩家血 -= 敵.傷;
+  戰鬥訊息 = '💥 ' + 敵.名 + ' 反擊！你被扣了 ' + 敵.傷 + ' 點血。';
+  動畫 = { 類型:'敵人出招', t:0, 長:0.55, 結束:()=>{
+    if(玩家血 <= 0){ 玩家血 = 0; state = 'lose'; }
+    else {
+      誰的回合 = '玩家';
+      戰鬥訊息 = '輪到你了！敵人是「' + 敵.屬性 + '」屬性，選能剋牠的法術。';
+      動畫 = null;
+    }
+  } };
+}
+
+function 贏了這一關(){
+  const 敵 = 敵人們[關卡];
+  if(關卡 === 敵人們.length - 1){ state = 'win'; 動畫 = null; return; }
+  剛得到 = 敵.掉落.slice(0, SETTINGS.每場掉材料);
+  剛得到.forEach(m => 材料[m]++);
+  玩家血 = SETTINGS.主角血量;   // 打完一關回宿舍休息，血補滿（不然打到大魔王一定沒血）
+  state = 'result';
+  動畫 = null;
+}
+
+/* ===================== 主迴圈 ===================== */
+let 上次 = 0;
+function loop(now){
+  const dt = Math.min(0.05, (now - 上次)/1000 || 0);
+  上次 = now;
+
+  if(動畫){
+    動畫.t += dt;
+    if(動畫.t >= 動畫.長){
+      const f = 動畫.結束; 動畫 = null; if(f) f();
+    }
+  }
+
+  ctx.clearRect(0,0,W,H);
+  if(state === 'title')       畫開始畫面();
+  else if(state === 'story')  畫劇情();
+  else if(state === 'battle') 畫戰鬥();
+  else if(state === 'result') 畫勝利結算();
+  else if(state === 'craft')  畫調配室();
+  else if(state === 'win')    畫結局(true);
+  else if(state === 'lose')   畫結局(false);
+
+  requestAnimationFrame(loop);
+}
+
+/* ===================== 輸入（滑鼠 + 鍵盤） ===================== */
+function 取得焦點(){ try{ window.focus(); cv.focus(); }catch(e){} }
+
+// 用 e.code（實體按鍵位置）判斷，才不會被中文輸入法 / Caps Lock 影響
+function 鍵名(e){
+  const c = e.code || '';
+  if(c.indexOf('Digit') === 0)  return c.slice(5);
+  if(c.indexOf('Numpad') === 0) return c.slice(6);
+  if(c.indexOf('Key') === 0)    return c.slice(3).toLowerCase();
+  if(c === 'Space')             return ' ';
+  if(c === 'Enter' || c === 'NumpadEnter') return 'Enter';
+  const k = e.key || '';
+  return k.length === 1 ? k.toLowerCase() : k;
+}
+
+const 遊戲鍵 = ['1','2','3','4',' ','Enter'];
+window.addEventListener('keydown', function(e){
+  const k = 鍵名(e);
+  if(遊戲鍵.indexOf(k) < 0) return;
+  e.preventDefault();
+  用過鍵盤 = true;
+  const 目標 = 按鈕區.filter(b => b.記 === k)[0];
+  if(目標){ 目標.做(); return; }
+  // 空白鍵 / Enter：按「主要按鈕」（清單最後一個）
+  if(k === ' ' || k === 'Enter'){
+    const 主 = 按鈕區.filter(b => b.記 === '開始' || b.記 === '繼續' || b.記 === '下一步' || b.記 === '重玩')[0];
+    if(主) 主.做();
+  }
+});
+
+function 點到哪(e){
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (W / r.width);
+  const y = (e.clientY - r.top)  * (H / r.height);
+  return {x:x, y:y};
+}
+
+cv.addEventListener('pointerdown', function(e){
+  取得焦點();
+  const p = 點到哪(e);
+  for(let i = 按鈕區.length - 1; i >= 0; i--){
+    const b = 按鈕區[i];
+    if(p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h){ b.做(); return; }
+  }
+});
+window.addEventListener('pointerdown', 取得焦點);
+
+/* ===================== 啟動 ===================== */
+重新開始();
+state = 'title';
+按鈕區 = [];
+取得焦點();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一頁小遊戲 One Page Games</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #fbf6ec; --card: #ffffff; --ink: #2c2a26; --dim: #6f6a60;
+    --line: #e8dfcc; --accent: #e0685f; --shadow: rgba(80, 62, 40, .14);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #1a1714; --card: #26221d; --ink: #efe9dc; --dim: #b2a996;
+      --line: #3b342b; --shadow: rgba(0, 0, 0, .45);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1a1714; --card: #26221d; --ink: #efe9dc; --dim: #b2a996;
+    --line: #3b342b; --shadow: rgba(0, 0, 0, .45);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 16px 48px; }
+  header { text-align: center; margin-bottom: 28px; }
+  h1 { margin: 0; font-size: clamp(28px, 6vw, 44px); letter-spacing: .04em; }
+  header p { margin: 8px 0 0; color: var(--dim); }
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+  a.card {
+    display: flex; gap: 14px; align-items: center;
+    padding: 16px; border-radius: 16px; text-decoration: none; color: inherit;
+    background: var(--card); border: 2px solid var(--line);
+    box-shadow: 0 4px 0 var(--shadow);
+    transition: transform .12s ease, border-color .12s ease;
+  }
+  a.card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  a.card:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .emoji { font-size: 38px; line-height: 1; flex: 0 0 auto; }
+  .name { font-weight: 700; font-size: 17px; display: block; }
+  .desc { font-size: 13px; color: var(--dim); display: block; }
+  .note { font-size: 12px; color: var(--accent); display: block; margin-top: 2px; }
+  footer { text-align: center; margin-top: 32px; font-size: 13px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎮 一頁小遊戲</h1>
+    <p>每一個都是單一網頁的小遊戲，點一下就能玩！</p>
+  </header>
+
+  <main class="grid">
+    <a class="card" href="carrot-harvest.html">
+      <span class="emoji">🥕</span>
+      <span><span class="name">紅蘿蔔採收大作戰</span><span class="desc">挖成熟的紅蘿蔔，小心綠色的還沒熟</span></span>
+    </a>
+    <a class="card" href="four-elements-mage.html">
+      <span class="emoji">🪄</span>
+      <span><span class="name">四元素魔法師</span><span class="desc">在城堡裡用對的魔法打倒怪獸和女王</span></span>
+    </a>
+    <a class="card" href="baize-contract-journey.html">
+      <span class="emoji">🐉</span>
+      <span><span class="name">白泽契約之旅</span><span class="desc">迷宮、平台、打磚塊三關冒險</span></span>
+    </a>
+    <a class="card" href="points-pet-house.html">
+      <span class="emoji">🏡</span>
+      <span><span class="name">點數寵物屋</span><span class="desc">做好事集點數，領養寵物照顧牠</span><span class="note">進度只存在這台瀏覽器</span></span>
+    </a>
+    <a class="card" href="magic-academy-stardust.html">
+      <span class="emoji">✨</span>
+      <span><span class="name">魔法學院：星塵的秘密</span><span class="desc">屬性相剋的回合制魔法對決</span></span>
+    </a>
+    <a class="card" href="math-duel-purple-dragon.html">
+      <span class="emoji">⚔️</span>
+      <span><span class="name">數學決鬥：紫龍之森</span><span class="desc">算對數學抽卡牌，打倒紫色惡龍</span></span>
+    </a>
+    <a class="card" href="chameleon-camouflage.html">
+      <span class="emoji">🦎</span>
+      <span><span class="name">變色龍藏身術</span><span class="desc">把自己塗成背景，躲過放大鏡搜查</span></span>
+    </a>
+    <a class="card" href="block-animal-hospital.html">
+      <span class="emoji">🐶</span>
+      <span><span class="name">方塊動物醫院</span><span class="desc">3D 經營：治好動物再送出門</span></span>
+    </a>
+    <a class="card" href="after-school-assassination.html">
+      <span class="emoji">🐙</span>
+      <span><span class="name">放學後暗殺計畫</span><span class="desc">三分鐘內找空隙暗殺黃色老師</span></span>
+    </a>
+    <a class="card" href="after-school-assassination-3d.html">
+      <span class="emoji">🏫</span>
+      <span><span class="name">放學後暗殺計畫 3D</span><span class="desc">立體版教室，還有無限暗殺模式</span></span>
+    </a>
+    <a class="card" href="CubeIsland.html">
+      <span class="emoji">🏝️</span>
+      <span><span class="name">方塊小島 Cube Island</span><span class="desc">方塊風的小島遊戲</span></span>
+    </a>
+    <a class="card" href="tidy-up-game.html">
+      <span class="emoji">🧹</span>
+      <span><span class="name">整理一下</span><span class="desc">二十一道小整理</span></span>
+    </a>
+    <a class="card" href="drawing-duel.html">
+      <span class="emoji">🎨</span>
+      <span><span class="name">畫畫對決</span><span class="desc">兩人 60 秒塗鴉對決</span><span class="note">需要在 Claude 裡開啟才能連線</span></span>
+    </a>
+  </main>
+
+  <footer>Made with Claude · 用 Claude 做的小遊戲</footer>
+</div>
+</body>
+</html>

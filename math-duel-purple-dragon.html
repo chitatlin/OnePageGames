@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>數學決鬥:紫龍之森</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 8px 0;
+    background: #10241a;
+    color: #eaffea;
+    font-family: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    text-align: center;
+  }
+  h1 { font-size: 20px; margin: 4px 0 8px; letter-spacing: 1px; }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    border-radius: 12px;
+    background: #16321f;
+    touch-action: manipulation;
+    max-width: 100%;
+  }
+  #tip { font-size: 13px; margin-top: 8px; opacity: .85; }
+</style>
+</head>
+<body>
+
+<h1>⚔️ 數學決鬥:紫龍之森 🐉</h1>
+<canvas id="cv" width="800" height="560" tabindex="0"></canvas>
+<div id="tip">👆 先點一下遊戲畫面(點一下就開始),然後用滑鼠點答案,或直接用鍵盤打數字再按 Enter!</div>
+
+<script>
+// ===================== 遊戲設定(想改數值改這裡就好) =====================
+const SETTINGS = {
+  玩家血量: 20,          // 小狐狸的血
+  惡龍血量: 30,          // 紫龍的血
+  答錯扣血: 2,           // 答錯時惡龍咬掉的血
+  手牌上限: 5,           // 手上最多幾張卡
+  連擊需要: 3,           // 連續答對幾題送大絕招
+  攻擊傷害: 5,           // ⚔️ 攻擊卡
+  絕招傷害: 10,          // 💥 大絕招卡
+  治療回血: 5,           // ❤️ 治療卡
+  選項數量: 4,           // 每題有幾個選項可以點
+  卡種: ['attack', 'shield', 'heal', 'ultra', 'peek'] // 五種卡機率一樣
+};
+
+const 卡片資料 = {
+  attack: { emoji: '⚔️', 名稱: '攻擊卡',  說明: '惡龍 -' + SETTINGS.攻擊傷害,  色: '#e5533d', 亮: '#ff8f74', 暗: '#8c2417' },
+  shield: { emoji: '🛡️', 名稱: '防禦卡',  說明: '擋下一次攻擊',                色: '#3d86e5', 亮: '#7ab8ff', 暗: '#1c4a8c' },
+  heal:   { emoji: '❤️', 名稱: '治療卡',  說明: '自己 +' + SETTINGS.治療回血,  色: '#e5487f', 亮: '#ff8bb4', 暗: '#8c1e47' },
+  ultra:  { emoji: '💥', 名稱: '大絕招',  說明: '惡龍 -' + SETTINGS.絕招傷害,  色: '#f2a93b', 亮: '#ffd582', 暗: '#9a6410' },
+  peek:   { emoji: '🔮', 名稱: '窺視卡',  說明: '算出第一步',                  色: '#9b6ce5', 亮: '#ccaaff', 暗: '#582d94' }
+};
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+// ===================== 音效(全部用程式產生,不用音效檔) =====================
+let AC = null, 音效開 = true;
+function 開音訊() {
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC && AC.state === 'suspended') AC.resume();
+  } catch (e) { AC = null; }
+}
+// 一個音:從 f1 滑到 f2
+function 嗶(f1, f2, 開始, 長, 型, 音量) {
+  if (!音效開 || !AC) return;
+  try {
+    const t0 = AC.currentTime + 開始;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = 型 || 'sine';
+    o.frequency.setValueAtTime(f1, t0);
+    if (f2 && f2 !== f1) o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t0 + 長);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(音量 || .12, t0 + .02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 長);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t0); o.stop(t0 + 長 + .05);
+  } catch (e) {}
+}
+// 沙沙聲:用來做「咬一口」「爆炸」
+function 雜訊(開始, 長, 音量, 濾波) {
+  if (!音效開 || !AC) return;
+  try {
+    const n = Math.max(1, Math.floor(AC.sampleRate * 長));
+    const buf = AC.createBuffer(1, n, AC.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const s = AC.createBufferSource(); s.buffer = buf;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 濾波 || 900;
+    const g = AC.createGain(); g.gain.value = 音量 || .18;
+    s.connect(f); f.connect(g); g.connect(AC.destination);
+    s.start(AC.currentTime + 開始);
+  } catch (e) {}
+}
+const 音效 = {
+  點擊:   function () { 嗶(700, 900, 0, .05, 'square', .06); },
+  答對:   function () { 嗶(523, 523, 0, .1, 'sine', .12); 嗶(659, 659, .08, .1, 'sine', .12); 嗶(784, 784, .16, .16, 'sine', .12); },
+  答錯:   function () { 雜訊(0, .25, .22, 600); 嗶(200, 70, 0, .35, 'sawtooth', .14); },
+  攻擊:   function () { 雜訊(0, .12, .18, 1600); 嗶(400, 130, .02, .18, 'square', .1); },
+  大絕招: function () { 雜訊(0, .5, .3, 700); 嗶(500, 60, 0, .5, 'sawtooth', .16);
+                       嗶(880, 1400, .05, .2, 'square', .08); },
+  治療:   function () { 嗶(440, 440, 0, .12, 'triangle', .1); 嗶(660, 660, .1, .12, 'triangle', .1); 嗶(880, 880, .2, .22, 'triangle', .1); },
+  防禦:   function () { 嗶(1000, 1000, 0, .1, 'triangle', .1); 嗶(1500, 1200, .06, .25, 'triangle', .07); },
+  窺視:   function () { 嗶(1200, 1600, 0, .09, 'sine', .09); 嗶(1600, 2100, .07, .09, 'sine', .08); 嗶(2100, 2600, .14, .14, 'sine', .06); },
+  連擊:   function () { 嗶(523, 523, 0, .08, 'square', .1); 嗶(659, 659, .07, .08, 'square', .1);
+                       嗶(784, 784, .14, .08, 'square', .1); 嗶(1046, 1046, .21, .28, 'square', .12); },
+  勝利:   function () { const n = [523, 659, 784, 1046, 1318];
+                       for (let i = 0; i < n.length; i++) 嗶(n[i], n[i], i * .13, .3, 'triangle', .13); },
+  失敗:   function () { 嗶(392, 392, 0, .22, 'sawtooth', .1); 嗶(330, 330, .2, .22, 'sawtooth', .1); 嗶(262, 180, .4, .6, 'sawtooth', .1); }
+};
+
+// ===================== 遊戲狀態 =====================
+let state = 'start';        // start / playing / win / lose
+let 用過鍵盤 = false;
+let 玩家血, 惡龍血, 手牌, 連擊, 答對數, 題目, 打字中, 訊息, 訊息色;
+let 有防禦, 提示文字, 選項區, 卡片區, 震動, 惡龍受擊, 玩家受擊;
+let 螢火蟲 = [];
+
+for (let i = 0; i < 26; i++) {
+  螢火蟲.push({ x: Math.random() * W, y: Math.random() * H, r: 1 + Math.random() * 2,
+                vx: (Math.random() - .5) * .3, vy: (Math.random() - .5) * .3, p: Math.random() * 6.28 });
+}
+
+function 重新開始() {
+  玩家血 = SETTINGS.玩家血量;
+  惡龍血 = SETTINGS.惡龍血量;
+  手牌 = [];
+  連擊 = 0;
+  答對數 = 0;
+  打字中 = '';
+  訊息 = '算對數學,就能抽到卡牌!';
+  訊息色 = '#eaffea';
+  有防禦 = false;
+  提示文字 = '';
+  震動 = 0; 惡龍受擊 = 0; 玩家受擊 = 0;
+  選項區 = []; 卡片區 = [];
+  出新題目();
+  state = 'playing';
+}
+
+// ===================== 數學題目(答對越多越難) =====================
+function 隨機(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+
+function 出新題目() {
+  提示文字 = '';
+  打字中 = '';
+  const 難度 = 答對數;   // 答對越多題,難度越高
+  let a, b, c, 文字, 答案, 第一步 = '';
+
+  if (難度 < 3) {                       // 第 1~3 題:簡單加法
+    a = 隨機(2, 9); b = 隨機(2, 9);
+    文字 = a + ' + ' + b; 答案 = a + b;
+  } else if (難度 < 6) {                // 第 4~6 題:加減法
+    a = 隨機(10, 30); b = 隨機(2, 9);
+    if (Math.random() < .5) { 文字 = a + ' + ' + b; 答案 = a + b; }
+    else { 文字 = a + ' − ' + b; 答案 = a - b; }
+  } else if (難度 < 10) {               // 第 7~10 題:兩位數加減
+    a = 隨機(21, 79); b = 隨機(11, 49);
+    if (Math.random() < .5) { 文字 = a + ' + ' + b; 答案 = a + b; }
+    else { if (b > a) { const t = a; a = b; b = t; } 文字 = a + ' − ' + b; 答案 = a - b; }
+  } else if (難度 < 15) {               // 第 11~15 題:九九乘法
+    a = 隨機(2, 9); b = 隨機(2, 9);
+    文字 = a + ' × ' + b; 答案 = a * b;
+  } else {                              // 第 16 題以後:兩個步驟!
+    a = 隨機(2, 9); b = 隨機(2, 9); c = 隨機(2, 15);
+    if (Math.random() < .5) {
+      文字 = a + ' × ' + b + ' + ' + c; 答案 = a * b + c;
+      第一步 = a + ' × ' + b + ' = ' + (a * b);
+    } else {
+      const 積 = a * b;
+      const d = 隨機(1, Math.min(積 - 1, 15));
+      文字 = a + ' × ' + b + ' − ' + d; 答案 = 積 - d;
+      第一步 = a + ' × ' + b + ' = ' + 積;
+    }
+  }
+  if (!第一步) 第一步 = '這題一步就算得出來,自己想想看!';
+
+  // 做出四個選項(一個正確、三個接近的假答案)
+  const 選項 = [答案];
+  let 保險 = 0;
+  while (選項.length < SETTINGS.選項數量 && 保險++ < 200) {
+    let 假 = 答案 + 隨機(-9, 9);
+    if (假 < 0) 假 = 答案 + 隨機(1, 9);
+    if (假 !== 答案 && 選項.indexOf(假) < 0) 選項.push(假);
+  }
+  for (let i = 選項.length - 1; i > 0; i--) {       // 洗牌
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = 選項[i]; 選項[i] = 選項[j]; 選項[j] = t;
+  }
+  題目 = { 文字: 文字, 答案: 答案, 選項: 選項, 第一步: 第一步 };
+}
+
+// ===================== 回合流程 =====================
+function 抽卡() {
+  const 種類 = SETTINGS.卡種[Math.floor(Math.random() * SETTINGS.卡種.length)];
+  if (手牌.length < SETTINGS.手牌上限) { 手牌.push(種類); return 卡片資料[種類].emoji + ' ' + 卡片資料[種類].名稱; }
+  return null;   // 手牌滿了
+}
+
+function 送出答案(值) {
+  if (state !== 'playing' || 值 === null || isNaN(值)) return;
+  if (值 === 題目.答案) {
+    答對數++;
+    連擊++;
+    let m = '答對了!';
+    音效.答對();
+    const 抽到 = 抽卡();
+    m += 抽到 ? ' 抽到 ' + 抽到 : ' 但手牌滿了,先出一張卡!';
+    if (連擊 >= SETTINGS.連擊需要) {                 // 連擊獎勵:送大絕招
+      連擊 = 0;
+      音效.連擊();
+      if (手牌.length < SETTINGS.手牌上限) { 手牌.push('ultra'); m += ' 🔥連擊獎勵!得到 💥 大絕招!'; }
+      else m += ' 🔥連擊了,但手牌滿了!';
+    }
+    訊息 = m; 訊息色 = '#8ef2a0';
+  } else {
+    連擊 = 0;
+    if (有防禦) {
+      有防禦 = false;
+      音效.防禦();
+      訊息 = '答錯了…但 🛡️ 防禦卡幫你擋下來了!'; 訊息色 = '#7fc4ff';
+    } else {
+      玩家血 -= SETTINGS.答錯扣血;
+      玩家受擊 = 20; 震動 = 12;
+      音效.答錯();
+      訊息 = '答錯了!惡龍咬你一口,-' + SETTINGS.答錯扣血 + ' ❤️(答案是 ' + 題目.答案 + ')';
+      訊息色 = '#ff9d9d';
+    }
+  }
+  if (玩家血 <= 0) { 玩家血 = 0; state = 'lose'; 音效.失敗(); return; }
+  出新題目();
+}
+
+function 出牌(i) {
+  if (state !== 'playing' || i < 0 || i >= 手牌.length) return;
+  const 種類 = 手牌.splice(i, 1)[0];
+  if (種類 === 'attack') {
+    惡龍血 -= SETTINGS.攻擊傷害; 惡龍受擊 = 20; 音效.攻擊();
+    訊息 = '⚔️ 出擊!惡龍 -' + SETTINGS.攻擊傷害; 訊息色 = '#ffd08a';
+  } else if (種類 === 'ultra') {
+    惡龍血 -= SETTINGS.絕招傷害; 惡龍受擊 = 30; 震動 = 14; 音效.大絕招();
+    訊息 = '💥 大絕招轟出去!惡龍 -' + SETTINGS.絕招傷害; 訊息色 = '#ffd08a';
+  } else if (種類 === 'heal') {
+    玩家血 = Math.min(SETTINGS.玩家血量, 玩家血 + SETTINGS.治療回血); 音效.治療();
+    訊息 = '❤️ 補血!小狐狸 +' + SETTINGS.治療回血; 訊息色 = '#ffb3d0';
+  } else if (種類 === 'shield') {
+    有防禦 = true; 音效.防禦();
+    訊息 = '🛡️ 舉起盾牌!下一次答錯不會受傷'; 訊息色 = '#7fc4ff';
+  } else if (種類 === 'peek') {
+    提示文字 = '🔮 提示:' + 題目.第一步; 音效.窺視();
+    訊息 = '🔮 窺視卡!幫你算好第一步了'; 訊息色 = '#c9a8ff';
+  }
+  if (惡龍血 <= 0) { 惡龍血 = 0; state = 'win'; 音效.勝利(); }
+}
+
+// ===================== 輸入:鍵盤(用 e.code,不怕中文輸入法) =====================
+function 取得焦點() { try { window.focus(); cv.focus(); } catch (e) {} }
+
+function 鍵名(e) {
+  const c = e.code || '';
+  if (c.indexOf('Digit') === 0) return c.slice(5);        // Digit7 → '7'
+  if (c.indexOf('Numpad') === 0) {                        // 數字鍵盤
+    const n = c.slice(6);
+    return /^[0-9]$/.test(n) ? n : (n === 'Enter' ? 'Enter' : n);
+  }
+  if (c === 'Space') return ' ';
+  if (c === 'Enter' || c === 'NumpadEnter') return 'Enter';
+  if (c === 'Backspace') return 'Backspace';
+  const k = e.key || '';
+  return k;
+}
+
+window.addEventListener('keydown', function (e) {
+  const k = 鍵名(e);
+  const 遊戲鍵 = /^[0-9]$/.test(k) || k === 'Enter' || k === 'Backspace' || k === ' ';
+  if (!遊戲鍵) return;
+  e.preventDefault();
+  用過鍵盤 = true;
+  取得焦點();
+  開音訊();                                    // 第一次按鍵才能開音效(瀏覽器規定)
+
+  if (state !== 'playing') { 重新開始(); return; }
+
+  if (/^[0-9]$/.test(k)) { if (打字中.length < 4) 打字中 += k; }
+  else if (k === 'Backspace') { 打字中 = 打字中.slice(0, -1); }
+  else if (k === 'Enter' || k === ' ') {
+    if (打字中.length > 0) { 送出答案(parseInt(打字中, 10)); 打字中 = ''; }
+  }
+});
+
+// ===================== 輸入:滑鼠 / 觸控 =====================
+function 座標(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+}
+
+const 喇叭區 = { x: W - 54, y: 8, w: 44, h: 34 };
+
+cv.addEventListener('pointerdown', function (e) {
+  取得焦點();
+  開音訊();                                    // 第一次點畫面才能開音效
+  const p0 = 座標(e);
+  if (p0.x > 喇叭區.x && p0.x < 喇叭區.x + 喇叭區.w &&
+      p0.y > 喇叭區.y && p0.y < 喇叭區.y + 喇叭區.h) {   // 點喇叭 = 開/關音效
+    音效開 = !音效開;
+    if (音效開) 音效.點擊();
+    return;
+  }
+  if (state !== 'playing') { 重新開始(); return; }
+  const p = p0;
+  for (let i = 0; i < 選項區.length; i++) {          // 點答案
+    const b = 選項區[i];
+    if (p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h) { 送出答案(b.值); return; }
+  }
+  for (let i = 0; i < 卡片區.length; i++) {          // 點卡牌
+    const b = 卡片區[i];
+    if (p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h) { 出牌(b.i); return; }
+  }
+});
+window.addEventListener('pointerdown', 取得焦點);
+取得焦點();
+
+// ===================== 畫面 =====================
+function 圓角(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// ---------- 小工具 ----------
+function 三角(x1, y1, x2, y2, x3, y3) {
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.fill();
+}
+function 影子(cx, y, r, a) {
+  ctx.save(); ctx.globalAlpha = a || .3; ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(cx, y, r, r * .28, 0, 0, 6.29); ctx.fill(); ctx.restore();
+}
+function 眼睛(x, y, r, 眼白, 瞳) {
+  ctx.fillStyle = 眼白 || '#fff';
+  ctx.beginPath(); ctx.ellipse(x, y, r, r * 1.15, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = 瞳 || '#231a12';
+  ctx.beginPath(); ctx.ellipse(x, y + r * .1, r * .5, r * .8, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.beginPath(); ctx.arc(x - r * .3, y - r * .45, r * .25, 0, 6.29); ctx.fill();
+}
+
+// ---------- 立體的樹(左邊亮、右邊暗,就有厚度感) ----------
+function 樹(x, 底, s, 亮, 暗, a) {
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.fillStyle = '#3a2a18';
+  ctx.fillRect(x - 3 * s, 底 - 16 * s, 6 * s, 16 * s);
+  for (let i = 0; i < 3; i++) {
+    const ty = 底 - 14 * s - i * 19 * s, h = 34 * s, w = (30 - i * 6) * s;
+    ctx.fillStyle = 暗; 三角(x, ty - h, x + w, ty, x - w, ty);
+    ctx.fillStyle = 亮; 三角(x, ty - h, x, ty, x - w, ty);
+  }
+  ctx.restore();
+}
+
+const 地平線 = 232;
+
+function 畫森林(t) {
+  // ---- 天空 ----
+  const g = ctx.createLinearGradient(0, 0, 0, 地平線);
+  g.addColorStop(0, '#07180f'); g.addColorStop(.6, '#0e3020'); g.addColorStop(1, '#256b3f');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, 地平線);
+
+  // ---- 月光 ----
+  const m = ctx.createRadialGradient(W / 2, 地平線, 10, W / 2, 地平線, 300);
+  m.addColorStop(0, 'rgba(180,255,205,.28)'); m.addColorStop(1, 'rgba(180,255,205,0)');
+  ctx.fillStyle = m; ctx.fillRect(0, 0, W, 地平線);
+
+  // ---- 三層樹:遠的小又淡,近的大又深 ----
+  for (let i = 0; i < 16; i++) 樹(24 + i * 52 + Math.sin(i * 2.1) * 12, 地平線 - 4, .5, '#1d4a2e', '#12321e', .5);
+  for (let i = 0; i < 11; i++) 樹(-10 + i * 78 + Math.sin(i * 4.3) * 18, 地平線 + 12, .85, '#1b5c33', '#0d3620', .7);
+
+  // ---- 地板(往後延伸的透視) ----
+  const fg = ctx.createLinearGradient(0, 地平線, 0, H);
+  fg.addColorStop(0, '#2b6b45'); fg.addColorStop(.35, '#1d4c2f'); fg.addColorStop(1, '#0a2113');
+  ctx.fillStyle = fg; ctx.fillRect(0, 地平線, W, H - 地平線);
+
+  ctx.strokeStyle = 'rgba(150,255,190,.10)'; ctx.lineWidth = 1;
+  for (let i = -12; i <= 12; i++) {                       // 往消失點收斂的線
+    ctx.beginPath(); ctx.moveTo(W / 2 + i * 12, 地平線); ctx.lineTo(W / 2 + i * 300, H); ctx.stroke();
+  }
+  for (let k = 1; k <= 9; k++) {                          // 越近越寬的橫線
+    const yy = 地平線 + Math.pow(k / 9, 2.1) * (H - 地平線);
+    ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke();
+  }
+
+  // ---- 地平線的霧 ----
+  const fog = ctx.createLinearGradient(0, 地平線 - 26, 0, 地平線 + 26);
+  fog.addColorStop(0, 'rgba(190,255,215,0)');
+  fog.addColorStop(.5, 'rgba(190,255,215,.16)');
+  fog.addColorStop(1, 'rgba(190,255,215,0)');
+  ctx.fillStyle = fog; ctx.fillRect(0, 地平線 - 26, W, 52);
+
+  // ---- 最前面的大樹(只在兩側,不擋住題目) ----
+  樹(-6, H - 40, 2.4, '#123a22', '#081d10', .95);
+  樹(W + 6, H - 40, 2.4, '#123a22', '#081d10', .95);
+
+  // ---- 螢火蟲(近的大又亮,遠的小又淡) ----
+  for (let i = 0; i < 螢火蟲.length; i++) {
+    const f = 螢火蟲[i];
+    f.x += f.vx * (f.r * .6); f.y += f.vy;
+    f.p += .05;
+    if (f.x < 0) f.x = W; if (f.x > W) f.x = 0;
+    if (f.y < 0) f.y = H; if (f.y > H) f.y = 0;
+    const 亮 = .25 + Math.sin(f.p) * .35;
+    ctx.globalAlpha = Math.max(0, 亮) * (.4 + f.r / 3);
+    const gg = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * 5);
+    gg.addColorStop(0, '#fff6b0'); gg.addColorStop(1, 'rgba(255,233,138,0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r * 5, 0, 6.29); ctx.fill();
+    ctx.fillStyle = '#fffbdc';
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r * .8, 0, 6.29); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- 立體小狐狸 ----------
+function 畫狐狸(cx, cy, r, t, 受擊) {
+  cy += Math.sin(t / 32) * 3;
+  影子(cx, cy + r * 1.35, r * .85, .32);
+  ctx.save();
+  if (受擊 > 0) ctx.translate(Math.sin(t / 2.5) * 5, 0);
+  ctx.fillStyle = '#b8481a';                                   // 耳朵
+  三角(cx - r * .78, cy - r * 1.35, cx - r * .18, cy - r * .92, cx - r * .82, cy - r * .5);
+  三角(cx + r * .78, cy - r * 1.35, cx + r * .18, cy - r * .92, cx + r * .82, cy - r * .5);
+  ctx.fillStyle = '#ffd9b8';
+  三角(cx - r * .68, cy - r * 1.15, cx - r * .3, cy - r * .88, cx - r * .7, cy - r * .62);
+  三角(cx + r * .68, cy - r * 1.15, cx + r * .3, cy - r * .88, cx + r * .7, cy - r * .62);
+
+  const g = ctx.createRadialGradient(cx - r * .42, cy - r * .5, r * .12, cx, cy, r * 1.25);
+  g.addColorStop(0, '#ffc184'); g.addColorStop(.5, '#f0812c'); g.addColorStop(1, '#8f3a0c');
+  ctx.fillStyle = g;                                            // 頭
+  ctx.beginPath(); ctx.ellipse(cx, cy, r, r * .95, 0, 0, 6.29); ctx.fill();
+
+  ctx.fillStyle = '#fff2e2';                                    // 嘴巴白白的
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * .42, r * .58, r * .4, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#2f1d13';
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * .22, r * .13, r * .1, 0, 0, 6.29); ctx.fill();
+  ctx.strokeStyle = '#2f1d13'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cx, cy + r * .32); ctx.lineTo(cx, cy + r * .5); ctx.stroke();
+
+  眼睛(cx - r * .36, cy - r * .12, r * .14);
+  眼睛(cx + r * .36, cy - r * .12, r * .14);
+  ctx.restore();
+}
+
+// ---------- 立體紫龍 ----------
+function 畫惡龍(cx, cy, r, t, 受擊) {
+  cy += Math.sin(t / 26) * 5;
+  影子(cx, cy + r * 1.4, r * 1.05, .34);
+  ctx.save();
+  if (受擊 > 0) ctx.translate(Math.sin(t / 2.2) * 7, 0);
+
+  const 拍 = Math.sin(t / 14) * .25;                             // 翅膀拍動
+  ctx.fillStyle = '#3d1259';
+  三角(cx - r * .5, cy - r * .2, cx - r * 2.0, cy - r * (1.0 + 拍), cx - r * 1.7, cy + r * (.7 - 拍));
+  三角(cx + r * .5, cy - r * .2, cx + r * 2.0, cy - r * (1.0 + 拍), cx + r * 1.7, cy + r * (.7 - 拍));
+  ctx.fillStyle = 'rgba(160,90,220,.35)';
+  三角(cx - r * .5, cy - r * .2, cx - r * 1.6, cy - r * (.8 + 拍), cx - r * 1.35, cy + r * (.5 - 拍));
+  三角(cx + r * .5, cy - r * .2, cx + r * 1.6, cy - r * (.8 + 拍), cx + r * 1.35, cy + r * (.5 - 拍));
+
+  ctx.fillStyle = '#f0e3b0';                                     // 角
+  三角(cx - r * .55, cy - r * .72, cx - r * .25, cy - r * .95, cx - r * .95, cy - r * 1.5);
+  三角(cx + r * .55, cy - r * .72, cx + r * .25, cy - r * .95, cx + r * .95, cy - r * 1.5);
+
+  const g = ctx.createRadialGradient(cx - r * .45, cy - r * .55, r * .1, cx, cy, r * 1.3);
+  g.addColorStop(0, '#d79bff'); g.addColorStop(.45, '#8f3fd6'); g.addColorStop(1, '#33094d');
+  ctx.fillStyle = g;                                             // 頭
+  ctx.beginPath(); ctx.ellipse(cx, cy, r, r * .98, 0, 0, 6.29); ctx.fill();
+
+  const s = ctx.createLinearGradient(cx, cy + r * .2, cx, cy + r * .95);
+  s.addColorStop(0, '#a75fe0'); s.addColorStop(1, '#5a1d8a');
+  ctx.fillStyle = s;                                             // 鼻子
+  ctx.beginPath(); ctx.ellipse(cx, cy + r * .52, r * .52, r * .34, 0, 0, 6.29); ctx.fill();
+  ctx.fillStyle = '#2a0740';
+  ctx.beginPath(); ctx.arc(cx - r * .18, cy + r * .42, r * .06, 0, 6.29); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * .18, cy + r * .42, r * .06, 0, 6.29); ctx.fill();
+
+  ctx.fillStyle = '#fff';                                        // 牙齒
+  三角(cx - r * .3, cy + r * .72, cx - r * .18, cy + r * .72, cx - r * .24, cy + r * .95);
+  三角(cx + r * .3, cy + r * .72, cx + r * .18, cy + r * .72, cx + r * .24, cy + r * .95);
+
+  眼睛(cx - r * .38, cy - r * .18, r * .15, '#ffe066', '#2a0740');
+  眼睛(cx + r * .38, cy - r * .18, r * .15, '#ffe066', '#2a0740');
+
+  if (受擊 > 0) {                                                // 被打到會發紅光
+    ctx.globalAlpha = 受擊 / 40; ctx.fillStyle = '#ff5555';
+    ctx.beginPath(); ctx.ellipse(cx, cy, r * 1.1, r * 1.05, 0, 0, 6.29); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+function 血條(x, y, w, 現在, 最大, 色, 標題, emoji) {
+  ctx.fillStyle = '#eaffea'; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(emoji + ' ' + 標題 + '  ' + 現在 + ' / ' + 最大, x, y - 8);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; 圓角(x, y, w, 16, 8); ctx.fill();
+  ctx.fillStyle = 色; 圓角(x, y, Math.max(0, w * (現在 / 最大)), 16, 8); ctx.fill();
+}
+
+function 畫喇叭() {
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  圓角(喇叭區.x, 喇叭區.y, 喇叭區.w, 喇叭區.h, 10); ctx.fill();
+  ctx.textAlign = 'center'; ctx.font = '20px sans-serif'; ctx.fillStyle = '#fff';
+  ctx.fillText(音效開 ? '🔊' : '🔇', 喇叭區.x + 喇叭區.w / 2, 喇叭區.y + 25);
+}
+
+function 畫開始畫面() {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 40px sans-serif';
+  ctx.fillText('⚔️ 數學決鬥:紫龍之森 🐉', W / 2, 130);
+  ctx.fillStyle = '#cdf5cd'; ctx.font = '19px sans-serif';
+  const 說明 = [
+    '🦊 你是小狐狸算術師,要打倒紫色惡龍!',
+    '',
+    '✅ 答對數學 → 抽到一張卡牌(手上最多 5 張)',
+    '❌ 答錯 → 惡龍咬你,-' + SETTINGS.答錯扣血 + ' ❤️',
+    '🔥 連續答對 ' + SETTINGS.連擊需要 + ' 題 → 直接送你 💥 大絕招!',
+    '',
+    '⚔️ 攻擊 -' + SETTINGS.攻擊傷害 + '   💥 絕招 -' + SETTINGS.絕招傷害 +
+      '   ❤️ 補 ' + SETTINGS.治療回血 + '   🛡️ 擋一次   🔮 給提示'
+  ];
+  for (let i = 0; i < 說明.length; i++) ctx.fillText(說明[i], W / 2, 195 + i * 32);
+  ctx.fillStyle = '#ffe98a'; ctx.font = 'bold 24px sans-serif';
+  ctx.fillText('👆 點一下畫面(或按空白鍵)開始!', W / 2, 470);
+}
+
+function 畫結束畫面(贏了) {
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 48px sans-serif';
+  ctx.fillStyle = 贏了 ? '#ffe066' : '#ff9d9d';
+  ctx.fillText(贏了 ? '🎉 你打倒惡龍了! 🐉' : '💫 小狐狸撐不住了…', W / 2, 210);
+  ctx.fillStyle = '#ffffff'; ctx.font = '24px sans-serif';
+  ctx.fillText('你總共答對了 ' + 答對數 + ' 題數學!', W / 2, 275);
+  ctx.fillStyle = '#cdf5cd'; ctx.font = '20px sans-serif';
+  ctx.fillText(贏了 ? '你的算數就是最強的武器 🦊⚔️' : '再試一次,這次一定贏!', W / 2, 315);
+  ctx.fillStyle = '#ffe98a'; ctx.font = 'bold 26px sans-serif';
+  圓角(W / 2 - 120, 355, 240, 56, 14); ctx.fillStyle = '#2e7d4f'; ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('🔄 再玩一次', W / 2, 392);
+  ctx.fillStyle = '#cdf5cd'; ctx.font = '17px sans-serif';
+  ctx.fillText('點一下畫面就重新開始', W / 2, 440);
+}
+
+function 畫遊戲中(t) {
+  // ---- 上方:兩邊的角色和血條 ----
+  畫狐狸(84, 168, 40, t, 玩家受擊);
+  畫惡龍(W - 96, 165, 42, t, 惡龍受擊);
+
+  血條(150, 48, 200, 玩家血, SETTINGS.玩家血量, '#3ddc84', '小狐狸', '🦊');
+  血條(W - 350, 48, 200, 惡龍血, SETTINGS.惡龍血量, '#b45cf0', '紫龍', '🐉');
+
+  if (有防禦) {
+    ctx.textAlign = 'center'; ctx.font = '30px sans-serif';
+    ctx.fillText('🛡️', 84, 232 + Math.sin(t / 20) * 3);
+  }
+  if (連擊 > 0) {
+    ctx.textAlign = 'center'; ctx.fillStyle = '#ffcc55'; ctx.font = 'bold 19px sans-serif';
+    ctx.fillText('🔥 連擊 ' + 連擊 + ' / ' + SETTINGS.連擊需要, W / 2, 106);
+  }
+
+  // ---- 中間:題目 ----
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; 圓角(W / 2 - 230, 118, 460, 78, 16); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 44px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(題目.文字 + ' = ?', W / 2, 172);
+
+  if (提示文字) {
+    ctx.fillStyle = '#c9a8ff'; ctx.font = 'bold 19px sans-serif';
+    ctx.fillText(提示文字, W / 2, 218);
+  }
+
+  // ---- 四個答案按鈕 ----
+  選項區 = [];
+  const bw = 150, bh = 54, gap = 16;
+  const 總寬 = 題目.選項.length * bw + (題目.選項.length - 1) * gap;
+  let bx = (W - 總寬) / 2;
+  for (let i = 0; i < 題目.選項.length; i++) {
+    const x = bx + i * (bw + gap), y = 238;
+    ctx.fillStyle = 'rgba(0,0,0,.4)'; 圓角(x + 3, y + 6, bw, bh, 12); ctx.fill();   // 影子
+    ctx.fillStyle = '#175c33'; 圓角(x, y + 5, bw, bh, 12); ctx.fill();              // 按鈕的厚度
+    const bg = ctx.createLinearGradient(x, y, x, y + bh);
+    bg.addColorStop(0, '#4fae74'); bg.addColorStop(1, '#26714a');
+    ctx.fillStyle = bg; 圓角(x, y, bw, bh, 12); ctx.fill();                         // 正面
+    ctx.fillStyle = 'rgba(255,255,255,.22)'; 圓角(x + 6, y + 5, bw - 12, bh * .38, 8); ctx.fill(); // 反光
+    ctx.strokeStyle = '#8ff2b8'; ctx.lineWidth = 2; 圓角(x, y, bw, bh, 12); ctx.stroke();
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 28px sans-serif';
+    ctx.fillText(題目.選項[i], x + bw / 2, y + 37);
+    選項區.push({ x: x, y: y, w: bw, h: bh, 值: 題目.選項[i] });
+  }
+
+  // ---- 鍵盤打的答案 ----
+  ctx.fillStyle = '#eaffea'; ctx.font = '18px sans-serif';
+  ctx.fillText(打字中 ? '⌨️ 你打的答案:' + 打字中 + '(按 Enter 送出)' : '⌨️ 也可以用鍵盤打數字,再按 Enter', W / 2, 322);
+
+  // ---- 訊息 ----
+  ctx.fillStyle = 訊息色; ctx.font = 'bold 19px sans-serif';
+  ctx.fillText(訊息, W / 2, 356);
+
+  // ---- 手牌 ----
+  ctx.fillStyle = '#cdf5cd'; ctx.font = '16px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('🃏 你的手牌(點一張出牌)  ' + 手牌.length + ' / ' + SETTINGS.手牌上限, 60, 392);
+
+  卡片區 = [];
+  const cw = 128, ch = 118, cg = 12;
+  const 起 = (W - (SETTINGS.手牌上限 * cw + (SETTINGS.手牌上限 - 1) * cg)) / 2;
+  for (let i = 0; i < SETTINGS.手牌上限; i++) {
+    const x = 起 + i * (cw + cg), y = 406;
+    if (i < 手牌.length) {
+      const d = 卡片資料[手牌[i]];
+      const 浮 = Math.sin(t / 30 + i * 1.1) * 3.5;
+      const 傾 = Math.sin(t / 70 + i * 1.7) * .04;
+      ctx.save();
+      ctx.translate(x + cw / 2, y + ch / 2 + 浮);
+      ctx.rotate(傾);
+      ctx.fillStyle = 'rgba(0,0,0,.4)';                                  // 落在桌面的影子
+      圓角(-cw / 2 + 5, -ch / 2 + 12, cw, ch, 12); ctx.fill();
+      ctx.fillStyle = d.暗;                                              // 卡片的厚度(側面)
+      圓角(-cw / 2 + 4, -ch / 2 + 6, cw, ch, 12); ctx.fill();
+      const cg = ctx.createLinearGradient(-cw / 2, -ch / 2, cw / 2, ch / 2);
+      cg.addColorStop(0, d.亮); cg.addColorStop(.55, d.色); cg.addColorStop(1, d.暗);
+      ctx.fillStyle = cg;                                                // 正面
+      圓角(-cw / 2, -ch / 2, cw, ch, 12); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.18)';                           // 斜斜的反光
+      ctx.save(); 圓角(-cw / 2, -ch / 2, cw, ch, 12); ctx.clip();
+      三角(-cw / 2, -ch / 2, cw / 2, -ch / 2, -cw / 2, ch / 2);
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
+      圓角(-cw / 2, -ch / 2, cw, ch, 12); ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.font = '34px sans-serif'; ctx.fillStyle = '#fff';
+      ctx.fillText(d.emoji, 0, -ch / 2 + 46);
+      ctx.font = 'bold 17px sans-serif'; ctx.fillText(d.名稱, 0, -ch / 2 + 76);
+      ctx.font = '14px sans-serif'; ctx.fillText(d.說明, 0, -ch / 2 + 100);
+      ctx.restore();
+      卡片區.push({ x: x, y: y, w: cw, h: ch, i: i });
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,.07)'; 圓角(x, y, cw, ch, 12); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 2; 圓角(x, y, cw, ch, 12); ctx.stroke();
+    }
+  }
+
+  // ---- 常駐操作提示 ----
+  ctx.textAlign = 'center'; ctx.fillStyle = '#a9d8b4'; ctx.font = '15px sans-serif';
+  ctx.fillText(用過鍵盤 ? '⌨️ 打數字 + Enter,或用滑鼠點答案和卡牌'
+                        : '👆 鍵盤沒反應?先點一下畫面,或直接用滑鼠點答案就好', W / 2, H - 14);
+}
+
+// ===================== 主迴圈(只啟動一次) =====================
+let t = 0;
+function loop() {
+  t++;
+  if (惡龍受擊 > 0) 惡龍受擊--;
+  if (玩家受擊 > 0) 玩家受擊--;
+  ctx.save();
+  if (震動 > 0) { 震動--; ctx.translate((Math.random() - .5) * 6, (Math.random() - .5) * 6); }
+  畫森林(t);
+  if (state === 'start') 畫開始畫面();
+  else if (state === 'playing') 畫遊戲中(t);
+  else { 畫遊戲中(t); 畫結束畫面(state === 'win'); }
+  畫喇叭();
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+重新開始();
+state = 'start';     // 先停在開始畫面
+loop();
+</script>
+</body>
+</html>

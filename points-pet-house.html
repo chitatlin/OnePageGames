@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>點數寵物屋</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FFF4F2; --panel:#FFFFFF; --panel2:#FFF0F3; --ink:#40303C; --soft:#8A7280;
+  --berry:#FF5E86; --berry-d:#E03E69; --matcha:#4FB477; --matcha-d:#3A8F5B;
+  --butter:#FFC94A; --sky:#7FC5E8; --line:#F3DBE1; --edge:#F0CBD5;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#2B1F29; --panel:#3B2B37; --panel2:#4A3542; --ink:#FFEDF2;
+    --soft:#C6A8B5; --line:#553F4C; --edge:#1F1620; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#2B1F29; --panel:#3B2B37; --panel2:#4A3542; --ink:#FFEDF2;
+  --soft:#C6A8B5; --line:#553F4C; --edge:#1F1620; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"PingFang TC","Noto Sans TC","Hiragino Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+  font-size:16px; line-height:1.55; -webkit-text-size-adjust:100%;
+}
+.num{font-family:"Baloo 2","PingFang TC","Noto Sans TC",system-ui,sans-serif;font-weight:800;font-variant-numeric:tabular-nums}
+.wrap{max-width:600px;margin:0 auto;padding:14px 14px 40px}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.brand{font-weight:700;font-size:17px}
+.brand span{font-size:20px;margin-right:2px}
+.wallet{display:flex;align-items:baseline;gap:6px;background:var(--panel);border:2px solid var(--line);
+  border-radius:999px;padding:6px 16px 7px;box-shadow:0 4px 0 var(--edge)}
+.wallet .coin{font-size:18px;align-self:center}
+#points{font-size:28px;line-height:1}
+.wallet .unit{font-size:13px;color:var(--soft)}
+#points.pop{animation:pop .45s cubic-bezier(.3,1.6,.5,1)}
+@keyframes pop{0%{transform:scale(1)}35%{transform:scale(1.35)}100%{transform:scale(1)}}
+
+/* ---- 成員列 ---- */
+.users{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;margin-bottom:4px;scrollbar-width:none}
+.users::-webkit-scrollbar{display:none}
+.users button{
+  flex:0 0 auto;font:inherit;cursor:pointer;color:inherit;background:var(--panel);
+  border:2px solid var(--line);border-radius:16px;padding:6px 12px 7px;
+  box-shadow:0 4px 0 var(--edge);display:flex;align-items:center;gap:6px;
+}
+.users button[aria-pressed="true"]{border-color:var(--berry);box-shadow:0 4px 0 var(--berry-d);background:var(--panel2)}
+.users .e{font-size:20px;line-height:1.3}
+.users .n{font-weight:700;font-size:14px;max-width:6em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.users .p{font-size:12px;color:var(--soft)}
+.users .adduser{font-size:18px;font-weight:800;color:var(--berry);padding:6px 14px 7px}
+
+.stage{background:var(--panel);border:2px solid var(--line);border-radius:22px;
+  box-shadow:0 6px 0 var(--edge);padding:14px 14px 16px;margin-bottom:14px}
+.petbar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.petbar button{font:inherit;cursor:pointer;background:var(--panel2);border:2px solid transparent;
+  border-radius:14px;padding:4px 10px;font-size:20px;line-height:1.4;color:inherit}
+.petbar button[aria-pressed="true"]{border-color:var(--berry);background:var(--panel)}
+.petbar .addpet{font-size:15px;font-weight:700;color:var(--berry)}
+.floor{background:linear-gradient(180deg,transparent 0%,transparent 55%,var(--panel2) 55%,var(--panel2) 100%);
+  border-radius:16px;text-align:center;padding:12px 8px 10px;position:relative;overflow:hidden}
+.avatar{font-size:76px;line-height:1.1;display:inline-block;filter:drop-shadow(0 6px 4px rgba(0,0,0,.12))}
+.avatar.cheer{animation:hop .7s ease}
+@keyframes hop{0%{transform:translateY(0) rotate(0)}25%{transform:translateY(-22px) rotate(-8deg)}
+  50%{transform:translateY(0) rotate(0)}70%{transform:translateY(-11px) rotate(7deg)}100%{transform:translateY(0) rotate(0)}}
+.float{position:absolute;font-size:30px;pointer-events:none;animation:rise 1.1s ease-out forwards}
+@keyframes rise{0%{opacity:0;transform:translateY(0) scale(.6)}20%{opacity:1}
+  100%{opacity:0;transform:translateY(-80px) scale(1.25)}}
+.petname{font-weight:700;font-size:18px;margin-top:6px}
+.mood{color:var(--soft);font-size:14px;min-height:22px}
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.meter .cap{display:flex;justify-content:space-between;font-size:13px;color:var(--soft);margin-bottom:3px}
+.bar{height:14px;border-radius:999px;background:var(--panel2);overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;border-radius:999px;transition:width .45s ease}
+.bar.food i{background:var(--matcha)}
+.bar.fun i{background:var(--berry)}
+
+.card{background:var(--panel);border:2px dashed var(--line);border-radius:22px;padding:14px;margin-bottom:14px}
+.card h2{margin:0 0 4px;font-size:16px}
+.card p{margin:0 0 10px;font-size:14px;color:var(--soft)}
+.stamps{display:grid;grid-template-columns:repeat(12,1fr);gap:5px;margin-bottom:12px}
+.stamps b{aspect-ratio:1;border-radius:50%;border:2px solid var(--line);display:block;
+  background:var(--panel2);transition:background .3s,transform .3s}
+.stamps b.on{background:var(--butter);border-color:var(--butter);transform:scale(1.06)}
+
+button{font-family:inherit}
+.btn{font:inherit;font-weight:700;cursor:pointer;color:#fff;background:var(--berry);border:none;
+  border-radius:16px;padding:11px 18px;width:100%;box-shadow:0 5px 0 var(--berry-d);
+  transition:transform .08s,box-shadow .08s}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 var(--berry-d)}
+.btn[disabled]{background:#C9BCC4;box-shadow:0 5px 0 #A99AA3;cursor:not-allowed}
+.btn.ghost{background:var(--panel2);color:var(--soft);box-shadow:0 5px 0 var(--edge);font-weight:600}
+.btn.green{background:var(--matcha);box-shadow:0 5px 0 var(--matcha-d)}
+.btn.green:active{box-shadow:0 1px 0 var(--matcha-d)}
+:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.tabs button{font:inherit;font-weight:700;cursor:pointer;color:var(--soft);background:var(--panel);
+  border:2px solid var(--line);border-radius:16px;padding:9px 4px;box-shadow:0 4px 0 var(--edge)}
+.tabs button[aria-selected="true"]{background:var(--berry);color:#fff;border-color:var(--berry);box-shadow:0 4px 0 var(--berry-d)}
+.panel{display:none}
+.panel.on{display:block}
+
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.seg button{font:inherit;font-weight:700;cursor:pointer;color:var(--soft);background:var(--panel2);
+  border:2px solid transparent;border-radius:14px;padding:8px 4px}
+.seg button[aria-pressed="true"]{background:var(--panel);border-color:var(--line);box-shadow:0 3px 0 var(--edge);color:var(--ink)}
+.seg button#segAdd[aria-pressed="true"]{color:var(--matcha-d)}
+.seg button#segSub[aria-pressed="true"]{color:var(--berry-d)}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{font:inherit;text-align:left;cursor:pointer;color:inherit;background:var(--panel);
+  border:2px solid var(--line);border-radius:18px;padding:11px 12px;box-shadow:0 5px 0 var(--edge);
+  display:flex;align-items:center;gap:10px;transition:transform .08s,box-shadow .08s}
+.tile:active{transform:translateY(4px);box-shadow:0 1px 0 var(--edge)}
+.tile .ico{font-size:26px;line-height:1}
+.tile .txt{flex:1;min-width:0}
+.tile .t1{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.tile .t2{font-size:13px;color:var(--soft);display:block}
+.tile .plus{color:var(--matcha)}
+.tile .minus{color:var(--berry)}
+.tile .cost{color:var(--berry);font-weight:800}
+.tile.no{opacity:.45}
+.tile.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-6px)}50%{transform:translateX(6px)}75%{transform:translateX(-3px)}}
+
+.custom{background:var(--panel2);border-radius:18px;padding:12px;margin-top:12px}
+.custom .row{display:flex;gap:8px;margin-bottom:8px}
+.custom input{font:inherit;color:inherit;background:var(--panel);border:2px solid var(--line);
+  border-radius:12px;padding:9px 11px;min-width:0}
+.custom input[type=number]{width:84px;text-align:center;font-weight:700}
+.custom input[type=text]{flex:1}
+.custom .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.custom .btn{padding:10px}
+
+.log{list-style:none;margin:0;padding:0}
+.log li{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line)}
+.log .why{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.log .when{font-size:12px;color:var(--soft)}
+.log .d{font-weight:800;font-size:16px;min-width:2.6em}
+.log .d.up{color:var(--matcha)}
+.log .d.down{color:var(--berry)}
+.empty{text-align:center;color:var(--soft);padding:26px 10px;font-size:14px}
+.danger{margin-top:18px;text-align:center}
+.danger button{font:inherit;background:none;border:none;color:var(--soft);text-decoration:underline;cursor:pointer;font-size:13px}
+
+.veil{position:fixed;inset:0;background:rgba(40,25,35,.55);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
+.veil.on{display:flex}
+.modal{background:var(--panel);border-radius:22px;padding:18px;width:100%;max-width:420px;
+  max-height:86vh;overflow:auto;box-shadow:0 10px 0 rgba(0,0,0,.15)}
+.modal h3{margin:0 0 4px;font-size:18px}
+.modal p{margin:0 0 12px;color:var(--soft);font-size:14px}
+.pets{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.pets button{font:inherit;cursor:pointer;color:inherit;background:var(--panel2);border:3px solid transparent;
+  border-radius:16px;padding:8px 2px;text-align:center}
+.pets button[aria-pressed="true"]{border-color:var(--berry);background:var(--panel)}
+.pets .e{font-size:30px;display:block;line-height:1.2}
+.pets .n{font-size:12px;color:var(--soft)}
+.faces{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:14px}
+.faces button{font:inherit;font-size:26px;cursor:pointer;background:var(--panel2);border:3px solid transparent;
+  border-radius:14px;padding:4px 0;line-height:1.3}
+.faces button[aria-pressed="true"]{border-color:var(--berry);background:var(--panel)}
+.modal input[type=text]{font:inherit;color:inherit;background:var(--panel2);border:2px solid var(--line);
+  border-radius:12px;padding:10px 12px;width:100%;margin-bottom:12px}
+.modal .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.modal .kill{margin-top:12px;text-align:center}
+.modal .kill button{font:inherit;background:none;border:none;color:var(--soft);text-decoration:underline;cursor:pointer;font-size:13px}
+
+#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);background:var(--ink);color:var(--bg);
+  padding:10px 18px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;
+  transition:.25s;z-index:60;max-width:90vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+@media (max-width:380px){
+  .stamps{grid-template-columns:repeat(6,1fr)}
+  .grid{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand"><span>🏡</span>點數寵物屋</div>
+    <div class="wallet"><span class="coin">🪙</span><span id="points" class="num">0</span><span class="unit">分</span></div>
+  </header>
+
+  <div class="users" id="users"></div>
+
+  <section class="stage" id="stage"></section>
+  <section class="card" id="stampcard"></section>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-earn" aria-selected="true" aria-controls="p-earn">⭐ 分數</button>
+    <button role="tab" id="tab-shop" aria-selected="false" aria-controls="p-shop">🛒 商店</button>
+    <button role="tab" id="tab-log" aria-selected="false" aria-controls="p-log">📒 紀錄</button>
+  </nav>
+
+  <section class="panel on" id="p-earn" role="tabpanel">
+    <div class="seg">
+      <button id="segAdd" aria-pressed="true">＋ 加分</button>
+      <button id="segSub" aria-pressed="false">－ 扣分</button>
+    </div>
+    <div class="grid" id="tasks"></div>
+    <div class="custom">
+      <div class="row">
+        <input type="number" id="cp" value="5" min="1" max="999" inputmode="numeric" aria-label="分數">
+        <input type="text" id="cw" placeholder="發生了什麼事？" maxlength="20" aria-label="原因">
+      </div>
+      <div class="two">
+        <button class="btn green" id="addBtn">＋ 加分</button>
+        <button class="btn ghost" id="subBtn">－ 扣分</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="p-shop" role="tabpanel">
+    <div class="grid" id="shop"></div>
+  </section>
+
+  <section class="panel" id="p-log" role="tabpanel">
+    <ul class="log" id="log"></ul>
+    <div class="danger"><button id="resetBtn">清空這個人的全部紀錄</button></div>
+  </section>
+
+</div>
+
+<div class="veil" id="veil"><div class="modal" id="modal"></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* =================== 設定：想調整就改這裡 =================== */
+const SET = {
+  ADOPT_COST: 60,        // 領養一隻寵物要幾分
+  MAX_PETS: 3,           // 每個人最多養幾隻
+  MAX_USERS: 6,          // 最多幾個人一起用
+  HUNGER_PER_HOUR: 4,    // 肚子每小時餓掉多少（100 → 0 約 25 小時）
+  HAPPY_PER_HOUR: 3,     // 心情每小時掉多少（100 → 0 約 33 小時）
+  FACES: ['😀','😎','🐯','🦁','🐼','🐵','🦄','🐸','🐙','🌟','🍓','🚀'],
+  KINDS: [
+    {k:'cat',e:'🐱',n:'貓咪'}, {k:'dog',e:'🐶',n:'小狗'},
+    {k:'rab',e:'🐰',n:'兔子'}, {k:'ham',e:'🐹',n:'倉鼠'},
+    {k:'pen',e:'🐧',n:'企鵝'}, {k:'fox',e:'🦊',n:'狐狸'},
+    {k:'tur',e:'🐢',n:'烏龜'}, {k:'dra',e:'🐲',n:'小龍'}
+  ],
+  TASKS: [
+    {e:'📚',n:'寫功課',p:10},   {e:'📖',n:'閱讀 30 分鐘',p:10},
+    {e:'🧹',n:'幫忙做家事',p:5}, {e:'🛏️',n:'整理房間',p:5},
+    {e:'🎹',n:'練習樂器',p:10}, {e:'⚽',n:'運動',p:5},
+    {e:'🤝',n:'幫助別人',p:5},  {e:'⏰',n:'自己起床',p:3}
+  ],
+  PENALTY: [
+    {e:'📕',n:'忘記寫功課',p:10}, {e:'😴',n:'賴床',p:3},
+    {e:'🧦',n:'東西亂丟',p:5},   {e:'🗣️',n:'大聲吵架',p:5},
+    {e:'📱',n:'螢幕看太久',p:5}, {e:'🦷',n:'忘記刷牙',p:3}
+  ],
+  SHOP: [
+    {e:'🍎',n:'蘋果',p:5,food:15,fun:0},
+    {e:'🥣',n:'飼料',p:8,food:30,fun:0},
+    {e:'🍖',n:'大餐',p:15,food:60,fun:0},
+    {e:'🧶',n:'毛線球',p:6,food:0,fun:20},
+    {e:'🎾',n:'球',p:10,food:0,fun:35},
+    {e:'🎠',n:'遊樂場',p:18,food:0,fun:65},
+    {e:'🎁',n:'驚喜禮物',p:25,food:45,fun:45}
+  ]
+};
+
+/* =================== 資料 =================== */
+function newUser(name, emoji){
+  return {id:'u'+Date.now()+Math.floor(Math.random()*999), name:name, emoji:emoji,
+          points:0, pets:[], active:null, log:[]};
+}
+let S = {v:2, current:null, users:[]};
+let mode = 'add';                       // 'add' 加分 / 'sub' 扣分
+
+const $ = s => document.querySelector(s);
+const clamp = n => Math.max(0, Math.min(100, n));
+const now = () => Date.now();
+
+function U(){
+  if(!S.users.length) S.users.push(newUser('我','😀'));
+  let u = S.users.find(x => x.id === S.current);
+  if(!u){ u = S.users[0]; S.current = u.id; }
+  return u;
+}
+
+/* ---- 舊版資料自動搬家 ---- */
+function normalizeState(d){
+  if(!d || typeof d !== 'object') return null;
+  if(Array.isArray(d.users)){
+    const users = d.users.filter(u => u && u.id).map(u => ({
+      id:u.id, name:u.name||'我', emoji:u.emoji||'😀', points:+u.points||0,
+      pets:Array.isArray(u.pets)?u.pets:[], active:u.active||null,
+      log:Array.isArray(u.log)?u.log:[]
+    }));
+    if(!users.length) return null;
+    return {v:2, current:d.current||users[0].id, users:users, savedAt:d.savedAt||0};
+  }
+  if(typeof d.points === 'number'){          // v1：單人資料包成第一位成員
+    const u = newUser('我','😀');
+    u.points = d.points; u.pets = d.pets||[]; u.active = d.active||null; u.log = d.log||[];
+    return {v:2, current:u.id, users:[u], savedAt:d.savedAt||0};
+  }
+  return null;
+}
+
+/* ---- 存檔：優先雲端，沒有就用本機 ---- */
+let cloud = null, saveTimer = null;
+function localLoad(){ try{ const r = localStorage.getItem('petpoints'); if(r) return JSON.parse(r); }catch(e){} return null; }
+function localSave(){ try{ localStorage.setItem('petpoints', JSON.stringify(S)); }catch(e){} }
+function save(){
+  S.savedAt = now();
+  localSave();
+  if(!cloud) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    try{ cloud.doc('state/main').set(JSON.parse(JSON.stringify(S))).catch(()=>{}); }catch(e){}
+  }, 400);
+}
+async function waitClaude(ms){
+  const t0 = now();
+  while(now() - t0 < ms){
+    if(window.claude && typeof window.claude.use === 'function') return true;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return false;
+}
+async function initCloud(){
+  try{
+    if(!await waitClaude(4000)) return;
+    const db = await window.claude.use('db');
+    if(!db) return;
+    cloud = db;
+    const snap = await db.doc('state/main').get();
+    const remote = normalizeState((snap && snap.exists) ? snap.data() : null);
+    if(remote && (remote.savedAt||0) >= (S.savedAt||0)){ S = remote; renderAll(); }
+    else { save(); }
+  }catch(e){}
+}
+
+/* =================== 寵物狀態 =================== */
+function nowState(p){
+  const h = Math.max(0,(now() - p.tick)/3600000);
+  return {hunger:clamp(p.hunger - h*SET.HUNGER_PER_HOUR), happy:clamp(p.happy - h*SET.HAPPY_PER_HOUR)};
+}
+function settle(p){ const s = nowState(p); p.hunger = s.hunger; p.happy = s.happy; p.tick = now(); }
+function activePet(){ const u = U(); return u.pets.find(p => p.id === u.active) || u.pets[0] || null; }
+function kindOf(k){ return SET.KINDS.find(x => x.k === k) || SET.KINDS[0]; }
+function moodText(p){
+  const s = nowState(p), low = Math.min(s.hunger, s.happy);
+  if(s.hunger < 20) return {face:'🥺', t:p.name+'的肚子好餓，快餵牠吃東西！'};
+  if(s.happy < 20)  return {face:'🥱', t:p.name+'好無聊，買個玩具陪牠玩吧！'};
+  if(low < 45)      return {face:'🙂', t:p.name+'還可以，不過有點想你囉。'};
+  if(low < 75)      return {face:'😊', t:p.name+'心情不錯！'};
+  return {face:'🥰', t:p.name+'超級開心，被照顧得很好！'};
+}
+
+/* =================== 畫面 =================== */
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function timeText(t){
+  const d = new Date(t), n = new Date();
+  const hm = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  return d.toDateString() === n.toDateString() ? '今天 '+hm : (d.getMonth()+1)+'/'+d.getDate()+' '+hm;
+}
+let toastTimer;
+function toast(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.classList.remove('on'), 1900);
+}
+function cheer(emoji){
+  const av = $('#avatar'), fl = $('#floor');
+  if(!av || !fl) return;
+  av.classList.remove('cheer'); void av.offsetWidth; av.classList.add('cheer');
+  const f = document.createElement('span');
+  f.className = 'float'; f.textContent = emoji;
+  f.style.left = (38 + Math.random()*24) + '%'; f.style.top = '34%';
+  fl.appendChild(f); setTimeout(()=>f.remove(), 1200);
+}
+
+function renderUsers(){
+  $('#users').innerHTML = S.users.map(u =>
+    '<button data-user="'+u.id+'" aria-pressed="'+(u.id===S.current)+'">'+
+    '<span class="e">'+u.emoji+'</span><span class="n">'+esc(u.name)+'</span>'+
+    '<span class="p num">'+u.points+'</span></button>'
+  ).join('') + (S.users.length < SET.MAX_USERS ? '<button class="adduser" id="addUser" title="加一個人">＋</button>' : '');
+}
+
+function renderPoints(pop){
+  const el = $('#points');
+  el.textContent = U().points;
+  if(pop){ el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+}
+
+function renderStage(){
+  const box = $('#stage'), u = U();
+  if(!u.pets.length){
+    box.innerHTML = '<div class="floor"><div class="avatar">🏠</div>'+
+      '<div class="petname">'+esc(u.name)+'還沒有寵物</div>'+
+      '<div class="mood">存到 '+SET.ADOPT_COST+' 分，就可以領養一隻！</div></div>';
+    return;
+  }
+  const p = activePet(), s = nowState(p), m = moodText(p), k = kindOf(p.kind);
+  let bar = '';
+  if(u.pets.length > 1 || u.pets.length < SET.MAX_PETS){
+    bar = '<div class="petbar">' + u.pets.map(x =>
+      '<button data-pet="'+x.id+'" aria-pressed="'+(x.id===p.id)+'" title="'+esc(x.name)+'">'+kindOf(x.kind).e+'</button>'
+    ).join('') + (u.pets.length < SET.MAX_PETS ? '<button class="addpet" id="adopt2">＋ 再養一隻</button>' : '') + '</div>';
+  }
+  box.innerHTML = bar +
+    '<div class="floor" id="floor"><div class="avatar" id="avatar">'+k.e+'</div>'+
+    '<div class="petname">'+esc(p.name)+' '+m.face+'</div>'+
+    '<div class="mood">'+esc(m.t)+'</div></div>'+
+    '<div class="meters">'+
+      '<div class="meter"><div class="cap"><span>🍚 肚子</span><span>'+Math.round(s.hunger)+'%</span></div>'+
+      '<div class="bar food"><i style="width:'+s.hunger+'%"></i></div></div>'+
+      '<div class="meter"><div class="cap"><span>💗 心情</span><span>'+Math.round(s.happy)+'%</span></div>'+
+      '<div class="bar fun"><i style="width:'+s.happy+'%"></i></div></div>'+
+    '</div>';
+}
+
+function renderStampCard(){
+  const box = $('#stampcard'), u = U();
+  if(u.pets.length >= SET.MAX_PETS){ box.style.display = 'none'; return; }
+  box.style.display = '';
+  const left = Math.max(0, SET.ADOPT_COST - u.points), ok = left === 0;
+  let stamps = '';
+  for(let i = 1; i <= 12; i++) stamps += '<b class="'+(u.points >= i*5 ? 'on' : '')+'"></b>';
+  box.innerHTML =
+    '<h2>'+(u.pets.length ? esc(u.name)+'要再領養一隻' : esc(u.name)+'的第一隻寵物')+'</h2>'+
+    '<p>'+(ok ? '點數夠了，挑一隻帶回家吧！' : '每格 5 分，集滿 '+SET.ADOPT_COST+' 分就能領養。還差 '+left+' 分！')+'</p>'+
+    '<div class="stamps">'+stamps+'</div>'+
+    '<button class="btn" id="adoptBtn"'+(ok ? '' : ' disabled')+'>'+
+    (ok ? '🐾 領養寵物（'+SET.ADOPT_COST+' 分）' : '還差 '+left+' 分')+'</button>';
+}
+
+function renderTasks(){
+  const list = mode === 'add' ? SET.TASKS : SET.PENALTY;
+  $('#tasks').innerHTML = list.map((t,i) =>
+    '<button class="tile" data-task="'+i+'"><span class="ico">'+t.e+'</span>'+
+    '<span class="txt"><span class="t1">'+t.n+'</span>'+
+    '<span class="t2 '+(mode==='add'?'plus':'minus')+'">'+(mode==='add'?'+':'−')+t.p+' 分</span></span></button>'
+  ).join('');
+  $('#segAdd').setAttribute('aria-pressed', mode === 'add');
+  $('#segSub').setAttribute('aria-pressed', mode === 'sub');
+}
+
+function renderShop(){
+  const p = activePet(), u = U();
+  $('#shop').innerHTML = SET.SHOP.map((it,i) => {
+    const poor = u.points < it.p;
+    const what = it.food && it.fun ? '肚子 +'+it.food+'．心情 +'+it.fun
+               : it.food ? '肚子 +'+it.food : '心情 +'+it.fun;
+    return '<button class="tile'+(poor ? ' no' : '')+'" data-buy="'+i+'">'+
+      '<span class="ico">'+it.e+'</span><span class="txt">'+
+      '<span class="t1">'+it.n+' <span class="cost">'+it.p+'分</span></span>'+
+      '<span class="t2">'+what+'</span></span></button>';
+  }).join('') + (p ? '' : '<div class="empty">先領養一隻寵物，才有人可以吃東西喔 🐾</div>');
+}
+
+function renderLog(){
+  const el = $('#log'), u = U();
+  if(!u.log.length){ el.innerHTML = '<div class="empty">'+esc(u.name)+'還沒有紀錄。去「分數」按一下吧！</div>'; return; }
+  el.innerHTML = u.log.slice(0, 60).map(r =>
+    '<li><span class="d '+(r.d > 0 ? 'up' : 'down')+'">'+(r.d > 0 ? '+' : '−')+Math.abs(r.d)+'</span>'+
+    '<span class="why">'+esc(r.w)+'</span><span class="when">'+timeText(r.t)+'</span></li>'
+  ).join('');
+}
+
+function renderAll(){ renderUsers(); renderPoints(); renderStage(); renderStampCard(); renderTasks(); renderShop(); renderLog(); }
+
+/* =================== 動作 =================== */
+function addPoints(d, why){
+  const u = U();
+  u.points = Math.max(0, u.points + d);
+  u.log.unshift({t:now(), d:d, w:why});
+  if(u.log.length > 80) u.log.length = 80;
+  renderUsers(); renderPoints(true); renderStampCard(); renderShop(); renderLog(); save();
+}
+
+function buy(i){
+  const it = SET.SHOP[i], u = U(), p = activePet();
+  if(!p){ toast('先領養一隻寵物吧！🐾'); return false; }
+  if(u.points < it.p){ toast('點數不夠，再加油！剩 '+u.points+' 分'); return false; }
+  settle(p);
+  if(it.food && !it.fun && p.hunger >= 96){ toast(p.name+'已經吃得很飽了 🍚'); return false; }
+  if(it.fun && !it.food && p.happy >= 96){ toast(p.name+'現在超開心，晚點再玩！'); return false; }
+  u.points -= it.p;
+  p.hunger = clamp(p.hunger + it.food);
+  p.happy  = clamp(p.happy + it.fun);
+  u.log.unshift({t:now(), d:-it.p, w:'買'+it.n+'給'+p.name});
+  if(u.log.length > 80) u.log.length = 80;
+  renderUsers(); renderPoints(true); renderStage(); renderStampCard(); renderShop(); renderLog(); save();
+  cheer(it.food && !it.fun ? '😋' : '💖');
+  return true;
+}
+
+/* ---- 領養 ---- */
+let pick = SET.KINDS[0].k;
+function openAdopt(){
+  const u = U();
+  if(u.points < SET.ADOPT_COST){ toast('還差 '+(SET.ADOPT_COST-u.points)+' 分才能領養'); return; }
+  if(u.pets.length >= SET.MAX_PETS){ toast('一個人最多養 '+SET.MAX_PETS+' 隻喔'); return; }
+  pick = SET.KINDS[0].k;
+  $('#modal').innerHTML =
+    '<h3>'+esc(u.name)+'要領養哪一隻？</h3><p>選好之後幫牠取名字，會扣 '+SET.ADOPT_COST+' 分。</p>'+
+    '<div class="pets" id="pets">'+ SET.KINDS.map(k =>
+      '<button data-kind="'+k.k+'" aria-pressed="'+(k.k===pick)+'"><span class="e">'+k.e+'</span>'+
+      '<span class="n">'+k.n+'</span></button>').join('') +'</div>'+
+    '<input type="text" id="pname" maxlength="8" placeholder="幫牠取名字" value="'+kindOf(pick).n+'">'+
+    '<div class="acts"><button class="btn ghost" id="cancelBtn">再想想</button>'+
+    '<button class="btn" id="okBtn">帶牠回家</button></div>';
+  $('#veil').classList.add('on');
+  $('#pets').addEventListener('click', e => {
+    const b = e.target.closest('button[data-kind]'); if(!b) return;
+    const old = kindOf(pick).n, inp = $('#pname');
+    pick = b.dataset.kind;
+    Array.prototype.forEach.call($('#pets').children, x => x.setAttribute('aria-pressed', x.dataset.kind === pick));
+    if(!inp.value.trim() || inp.value.trim() === old) inp.value = kindOf(pick).n;
+  });
+  $('#cancelBtn').onclick = closeModal;
+  $('#okBtn').onclick = doAdopt;
+}
+function doAdopt(){
+  const u = U();
+  if(u.points < SET.ADOPT_COST || u.pets.length >= SET.MAX_PETS){ closeModal(); return; }
+  const name = ($('#pname').value || '').trim().slice(0,8) || kindOf(pick).n;
+  const pet = {id:'p'+now()+Math.floor(Math.random()*99), kind:pick, name:name,
+               hunger:100, happy:100, tick:now(), since:now()};
+  u.pets.push(pet); u.active = pet.id; u.points -= SET.ADOPT_COST;
+  u.log.unshift({t:now(), d:-SET.ADOPT_COST, w:'領養了'+name});
+  closeModal(); renderAll(); save();
+  setTimeout(()=>cheer('🎉'), 60);
+  toast(name+'跟'+u.name+'回家了！🎉');
+}
+function closeModal(){ $('#veil').classList.remove('on'); $('#modal').innerHTML = ''; }
+
+/* ---- 成員：新增 / 改名 / 刪除 ---- */
+let face = SET.FACES[0];
+function openUser(u){
+  const isNew = !u;
+  face = isNew ? SET.FACES[S.users.length % SET.FACES.length] : u.emoji;
+  $('#modal').innerHTML =
+    '<h3>'+(isNew ? '加一個人' : '修改「'+esc(u.name)+'」')+'</h3>'+
+    '<p>每個人有自己的點數、寵物和紀錄。</p>'+
+    '<div class="faces" id="faces">'+ SET.FACES.map(f =>
+      '<button data-face="'+f+'" aria-pressed="'+(f===face)+'">'+f+'</button>').join('') +'</div>'+
+    '<input type="text" id="uname" maxlength="8" placeholder="名字" value="'+(isNew ? '' : esc(u.name))+'">'+
+    '<div class="acts"><button class="btn ghost" id="cancelBtn">取消</button>'+
+    '<button class="btn" id="okBtn">'+(isNew ? '加進來' : '存起來')+'</button></div>'+
+    (isNew || S.users.length < 2 ? '' : '<div class="kill"><button id="killBtn">把「'+esc(u.name)+'」刪掉</button></div>');
+  $('#veil').classList.add('on');
+  $('#faces').addEventListener('click', e => {
+    const b = e.target.closest('button[data-face]'); if(!b) return;
+    face = b.dataset.face;
+    Array.prototype.forEach.call($('#faces').children, x => x.setAttribute('aria-pressed', x.dataset.face === face));
+  });
+  $('#cancelBtn').onclick = closeModal;
+  $('#okBtn').onclick = ()=>{
+    const nm = ($('#uname').value || '').trim().slice(0,8) || (isNew ? '新成員' : u.name);
+    if(isNew){
+      if(S.users.length >= SET.MAX_USERS){ closeModal(); return; }
+      const nu = newUser(nm, face);
+      S.users.push(nu); S.current = nu.id;
+      toast(nm+'加進來了！');
+    }else{ u.name = nm; u.emoji = face; }
+    closeModal(); renderAll(); save();
+  };
+  const kb = $('#killBtn');
+  if(kb) kb.onclick = ()=>confirmKill(u);
+}
+function confirmKill(u){
+  $('#modal').innerHTML =
+    '<h3>確定要刪掉「'+esc(u.name)+'」？</h3>'+
+    '<p>'+esc(u.name)+'的點數、'+u.pets.length+' 隻寵物和所有紀錄都會不見，救不回來喔。</p>'+
+    '<div class="acts"><button class="btn ghost" id="cancelBtn">不要</button>'+
+    '<button class="btn" id="okBtn">確定刪掉</button></div>';
+  $('#cancelBtn').onclick = closeModal;
+  $('#okBtn').onclick = ()=>{
+    S.users = S.users.filter(x => x.id !== u.id);
+    if(S.current === u.id) S.current = S.users.length ? S.users[0].id : null;
+    closeModal(); renderAll(); save(); toast('已經刪掉了');
+  };
+}
+
+function askReset(){
+  const u = U();
+  $('#modal').innerHTML =
+    '<h3>清空「'+esc(u.name)+'」的資料？</h3>'+
+    '<p>點數、寵物和紀錄都會歸零，其他人不受影響。</p>'+
+    '<div class="acts"><button class="btn ghost" id="cancelBtn">不要，我按錯了</button>'+
+    '<button class="btn" id="okBtn">確定清空</button></div>';
+  $('#veil').classList.add('on');
+  $('#cancelBtn').onclick = closeModal;
+  $('#okBtn').onclick = ()=>{
+    u.points = 0; u.pets = []; u.active = null; u.log = [];
+    closeModal(); renderAll(); save(); toast(u.name+'重新開始了');
+  };
+}
+
+/* =================== 事件 =================== */
+$('#users').addEventListener('click', e => {
+  if(e.target.closest('#addUser')) return openUser(null);
+  const b = e.target.closest('[data-user]'); if(!b) return;
+  const u = S.users.find(x => x.id === b.dataset.user); if(!u) return;
+  if(u.id === S.current) return openUser(u);        // 再按一次同一個人 → 改名字或頭像
+  S.current = u.id; renderAll(); save();
+});
+
+$('#tasks').addEventListener('click', e => {
+  const b = e.target.closest('[data-task]'); if(!b) return;
+  const list = mode === 'add' ? SET.TASKS : SET.PENALTY;
+  const t = list[+b.dataset.task];
+  addPoints(mode === 'add' ? t.p : -t.p, t.n);
+  toast(t.e+' '+t.n+'，'+(mode === 'add' ? '+' : '−')+t.p+' 分');
+});
+$('#segAdd').onclick = ()=>{ mode = 'add'; renderTasks(); };
+$('#segSub').onclick = ()=>{ mode = 'sub'; renderTasks(); };
+
+$('#shop').addEventListener('click', e => {
+  const b = e.target.closest('[data-buy]'); if(!b) return;
+  if(!buy(+b.dataset.buy)){ b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
+});
+
+function customPoints(){ return Math.min(999, Math.max(1, Math.round(+$('#cp').value || 0))); }
+$('#addBtn').onclick = ()=>{
+  const n = customPoints();
+  const w = ($('#cw').value || '').trim().slice(0,20) || '自己加的分數';
+  addPoints(n, w); $('#cw').value = ''; toast('+'+n+' 分！');
+};
+$('#subBtn').onclick = ()=>{
+  const n = customPoints();
+  const w = ($('#cw').value || '').trim().slice(0,20) || '扣分';
+  addPoints(-n, w); $('#cw').value = ''; toast('−'+n+' 分');
+};
+
+document.querySelectorAll('.tabs button').forEach(b => {
+  b.onclick = ()=>{
+    document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === b.getAttribute('aria-controls')));
+  };
+});
+
+$('#stampcard').addEventListener('click', e => { if(e.target.closest('#adoptBtn')) openAdopt(); });
+$('#stage').addEventListener('click', e => {
+  if(e.target.closest('#adopt2')) return openAdopt();
+  const b = e.target.closest('[data-pet]');
+  if(b){ U().active = b.dataset.pet; renderStage(); renderShop(); save(); }
+});
+$('#resetBtn').onclick = askReset;
+$('#veil').addEventListener('click', e => { if(e.target === $('#veil')) closeModal(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
+
+/* =================== 啟動 =================== */
+const boot = normalizeState(localLoad());
+if(boot) S = boot;
+U();
+renderAll();
+setInterval(renderStage, 60000);   // 每分鐘更新肚子和心情
+initCloud();
+</script>
+</body>
+</html>
