@@ -1,0 +1,2019 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>十三劍士對決</title>
+<style>
+  /* 版面:標題 → 遊戲畫面 → 觸控按鈕 → 提示,由上往下排 */
+  :root {
+    color-scheme: dark;
+    --bg: #15121d;
+    --fg: #f4ecdd;
+    --panel: #241f31;
+    --line: #3d3653;
+    --accent: #f5b335;
+    --ink: #1c1405;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif; }
+  .wrap { padding-block: 8px; padding-inline: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: .12em; text-wrap: balance; }
+  .screen { position: relative; width: 100%; max-width: 800px; aspect-ratio: 8 / 5; border-radius: 10px; border: 2px solid var(--line); background: #000; overflow: hidden; }
+  .screen:focus-within { border-color: var(--accent); }
+  .screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #cv { touch-action: none; outline: none; background: transparent; }
+  #gl { pointer-events: none; visibility: hidden; }
+  .pad { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 800px; }
+  .pad button { font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--line); background: var(--panel); color: var(--fg); touch-action: none; user-select: none; -webkit-user-select: none; min-width: 64px; cursor: pointer; }
+  .pad button.on { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+  .pad button:focus-visible { outline: 2px solid var(--accent); }
+  .tip { font-size: 13px; opacity: .75; text-align: center; margin: 0; }
+</style>
+
+<div class="wrap">
+  <h1>⚔️ 十三劍士對決</h1>
+  <div class="screen">
+    <canvas id="gl" width="800" height="500" aria-hidden="true"></canvas>
+    <canvas id="cv" width="800" height="500" tabindex="0"></canvas>
+  </div>
+  <div class="pad" id="pad" hidden>
+    <button data-k="a">↶ 左繞</button>
+    <button data-k="d">右繞 ↷</button>
+    <button data-k="w">⬆ 往前</button>
+    <button data-k="s">⬇ 往後</button>
+    <button data-k=" ">⤒ 跳</button>
+    <button data-k="Shift">💨 衝刺</button>
+    <button data-k="j">⚔️ 攻擊</button>
+    <button data-k="k">💥 大絕</button>
+    <button data-k="l">🛡️ 防禦</button>
+  </div>
+  <div class="pad"><button id="mute" type="button">🔊 音效:開</button></div>
+  <p class="tip">先點一下畫面再用鍵盤:W 往前、S 往後、A D 繞著對手左右走(快按兩下或 Shift 衝刺)、空白鍵 跳、J 攻擊(連按三連擊,跳起來按是空中攻擊)、K 大絕招、L 防禦。沒有鍵盤也可以用滑鼠或手指點按鈕。</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ===================== 所有可以調整的數字都在這裡 =====================
+const SETTINGS = {
+  血量: 30,            // 普通攻擊打 30 下會打光
+  普攻傷害: 1,
+  大絕傷害: 8,         // 大絕招 = 8 下普通攻擊
+  能量滿: 10,          // 打中 10 下集滿大絕能量
+  贏幾局: 2,           // 三戰兩勝
+  一開始劍士: 5,
+  顏色最多: 5,
+  廣告秒數: 15,
+  地面: 400,
+  地平: 330,           // 地板從畫面這裡開始(立體場地)
+  場地大小: 330,       // 3D 場地從中間到邊邊多遠
+  重力: 1700,
+  跳躍力: 640,
+  移動速度: 250,
+  攻擊距離: 85,
+  攻擊時間: 0.28,
+  攻擊冷卻: 0.4,
+  冰凍秒數: 2,
+  難度: {
+    簡單: { 反應: 0.55, 積極: 0.45, 防禦: 0.15, 速度: 0.7, 大絕機率: 0.35 },
+    普通: { 反應: 0.32, 積極: 0.7,  防禦: 0.35, 速度: 0.9, 大絕機率: 0.6 },
+    困難: { 反應: 0.16, 積極: 0.92, 防禦: 0.55, 速度: 1.0, 大絕機率: 0.9 }
+  }
+};
+
+// 13 位劍士(髮型 0 刺刺 / 1 長髮 / 2 短髮 / 3 包包頭 / 4 馬尾)
+const 劍士們 = [
+  { 名: '火焰劍士', 符: '🔥', 衣: '#e8492f', 髮: '#5a1408', 髮型: 0, 絕: '火焰大旋風', 型: 'aura' },
+  { 名: '流水劍士', 符: '💧', 衣: '#151a45', 髮: '#121214', 髮型: 2, 造型: '休閒', 外套: '#f2b53a', 劍刃: '#a9cdf0', 絕: '大浪衝擊', 型: 'wave' },
+  { 名: '雷電劍士', 符: '⚡', 衣: '#f2c230', 髮: '#f7e27a', 髮型: 0, 絕: '閃電瞬移斬', 型: 'teleport' },
+  { 名: '疾風劍士', 符: '🌪️', 衣: '#4fc583', 髮: '#1b4a30', 髮型: 4, 絕: '龍捲風', 型: 'tornado' },
+  { 名: '岩石劍士', 符: '🪨', 衣: '#8a7a66', 髮: '#2e261e', 髮型: 2, 絕: '落石砸地', 型: 'rock' },
+  { 名: '冰雪劍士', 符: '❄️', 衣: '#8fdcf2', 髮: '#eef8ff', 髮型: 1, 絕: '冰凍對手', 型: 'ice' },
+  { 名: '花瓣劍士', 符: '🌸', 衣: '#f59ac4', 髮: '#6e2347', 髮型: 3, 絕: '花瓣暴風雪', 型: 'petal' },
+  { 名: '月光劍士', 符: '🌙', 衣: '#3a8ee0', 髮: '#cfe6f2', 髮型: 4, 裙: true, 眼色: '#3a7ad8', 虎牙: true, 項圈: true, 珍珠: true, 金柄: true, 無頭帶: true, 劍刃: '#d8ecf8', 皮: '#fbe9df', 絕: '新月飛刀', 型: 'moon' },
+  { 名: '太陽劍士', 符: '☀️', 衣: '#ff9f1c', 髮: '#b8301f', 髮型: 0, 絕: '陽光大爆發', 型: 'sun' },
+  { 名: '毒蛇劍士', 符: '🐍', 衣: '#1d2550', 髮: '#121214', 髮型: 2, 造型: '休閒', 外套: '#dcdde3', 格子: true, 口罩: true, 眨眼: true, 絕: '扭扭蛇鞭', 型: 'whip' },
+  { 名: '蝴蝶劍士', 符: '🦋', 衣: '#a983e6', 髮: '#2e1a4d', 髮型: 3, 絕: '蝴蝶群飛', 型: 'butterfly' },
+  { 名: '音波劍士', 符: '🔊', 衣: '#e85aa0', 髮: '#1e1e24', 髮型: 0, 絕: '超大聲音波', 型: 'ring' },
+  { 名: '彩虹劍士', 符: '🌈', 衣: '#ffffff', 髮: '#ff5a5a', 髮型: 1, 絕: '七彩光束', 型: 'beam' },
+  // 👹 鬼(也可以選來玩)
+  { 名: '狐火鬼', 符: '🦊', 衣: '#e8742a', 髮: '#f3e6d0', 髮型: 1, 絕: '狐火球', 型: 'foxfire', 鬼: true, 開: true, 耳: '狐', 尾: 5, 皮: '#fbe6da' },
+  { 名: '蜘蛛絲鬼', 符: '🕷️', 衣: '#6a4a8a', 髮: '#f2f2f6', 髮型: 1, 絕: '絲網陷阱', 型: 'web', 鬼: true, 開: true, 臉紋: true, 皮: '#f4ecf0' },
+  { 名: '皇上', 符: '👑', 衣: '#b5204a', 髮: '#f2dc8a', 髮型: 2, 造型: '休閒', 外套: '#b5204a', 眼色: '#9a7ad8', 虎牙: true, 腰帶: '黑', 項圈: true, 領: true, 武器: '扇', 手套: false, 褲: '#141a22', 皮: '#fbe9df', 鬼: true, 開: true, 絕: '冰扇暴風', 型: 'icespikes' },
+  { 名: '花貓鬼', 符: '🌺', 衣: '#ec5fa4', 髮: '#5a3a24', 髮型: 1, 鬼: true, 開: true, 耳: '貓', 尾: 1, 裙: true, 花: true, 眼色: '#a88ad8', 舌: true, 皮: '#fbe9df', 絕: '九命貓爪', 型: 'claw' }
+];
+const 變色 = [null, '#e63946', '#2a9d8f', '#3d405b', '#ffb703'];   // 0 = 原本的顏色
+const 場地們 = [
+  { 名: '夜晚道場', 符: '🏯' }, { 名: '竹林', 符: '🎋' }, { 名: '雪山', 符: '🏔️' }, { 名: '櫻花樹下', 符: '🌸' },
+  { 名: '城市屋頂', 符: '🏙️' }, { 名: '太空站', 符: '🌌' }
+];
+const 難度名 = ['簡單', '普通', '困難'];
+
+// ===================== 畫面與狀態 =====================
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const pad = document.getElementById('pad');
+const W = 800, H = 500, 地面 = SETTINGS.地面;
+const 字型 = '"PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif';
+
+let 解鎖數 = SETTINGS.一開始劍士, 顏色數 = 1;
+// 一開始就能玩的鬼(開: true)放在最後面,不算在要解鎖的名單裡
+const 解鎖上限 = 劍士們.filter(d => !d.開).length;
+function 已解鎖(i) { return i < 解鎖數 || !!劍士們[i].開; }
+function 已解鎖數() { return 劍士們.filter((d, i) => 已解鎖(i)).length; }
+let scene = 'title', 場景時間 = 0, 時間 = 0;
+let 游標 = 0, 選P = 0, 選E = 1, 選場 = 0, 選難 = 1, 選色 = 0;
+let keys = {}, pressed = {}, 用過鍵盤 = false;
+let btns = [], mouse = { x: -1, y: -1 };
+let toast = { text: '', t: 0 };
+let F = null;                     // 一場比賽的所有資料
+let 解鎖佇列 = [], 動畫之後 = 'result';
+let 廣告 = { 種類: 0, 獎勵: 'unlock', t: 0 };
+let 密碼輸入 = '', 密碼訊息 = '';
+let 結果 = { 贏: false };
+let 彩帶 = [];
+
+function 換場景(s) { if (s === 'unlockAnim') 音效.解鎖(); scene = s; 場景時間 = 0; 游標 = s === 'pickP' ? 選P : s === 'pickE' ? 選E : s === 'pickStage' ? 選場 : s === 'pickDiff' ? 選難 : 0; }
+function 吐司(t) { if (t.indexOf('🔒') === 0) 音效.錯(); toast.text = t; toast.t = 2.2; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function R(i) { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+
+// ===================== 音效(用程式做出來,不用任何音檔) =====================
+let 音 = null, 靜音 = false, 噪音 = null;
+function 開音效() {
+  try {
+    if (!音) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      音 = new AC();
+      噪音 = 音.createBuffer(1, 音.sampleRate, 音.sampleRate);
+      const d = 噪音.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (音.state === 'suspended') 音.resume();
+  } catch (e) { 音 = null; }
+}
+// 嗶一聲:頻率、長度、波形、音量、滑到哪個頻率、延遲幾秒
+function 嗶(freq, dur, type, vol, slideTo, delay) {
+  if (!音 || 靜音) return;
+  try {
+    const t = 音.currentTime + (delay || 0);
+    const o = 音.createOscillator(), g = 音.createGain();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol || 0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(音.destination);
+    o.start(t); o.stop(t + dur + 0.05);
+  } catch (e) {}
+}
+// 沙沙聲(揮劍、風、浪)
+function 沙(dur, vol, 從, 到, delay) {
+  if (!音 || 靜音 || !噪音) return;
+  try {
+    const t = 音.currentTime + (delay || 0);
+    const s = 音.createBufferSource(), f = 音.createBiquadFilter(), g = 音.createGain();
+    s.buffer = 噪音; f.type = 'bandpass'; f.Q.value = 1.2;
+    f.frequency.setValueAtTime(從 || 800, t);
+    f.frequency.exponentialRampToValueAtTime(到 || 3000, t + dur);
+    g.gain.setValueAtTime(vol || 0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f); f.connect(g); g.connect(音.destination);
+    s.start(t); s.stop(t + dur + 0.05);
+  } catch (e) {}
+}
+function 旋律(notes, 間隔, type, vol) { notes.forEach((n, k) => 嗶(n, 間隔 * 1.6, type || 'square', vol || 0.1, 0, k * 間隔)); }
+const 音效 = {
+  點: () => 嗶(660, 0.06, 'square', 0.07),
+  揮: () => 沙(0.13, 0.14, 1500, 5000),
+  跳: () => 嗶(280, 0.12, 'square', 0.06, 560),
+  中: () => { 嗶(190, 0.12, 'square', 0.16, 70); 沙(0.07, 0.18, 2000, 600); },
+  大中: () => { 嗶(120, 0.35, 'sawtooth', 0.2, 40); 沙(0.3, 0.3, 1500, 200); },
+  擋: () => { 嗶(1250, 0.16, 'triangle', 0.14, 950); 嗶(1900, 0.1, 'sine', 0.07); },
+  冰: () => { 嗶(2200, 0.5, 'sine', 0.09, 900); 嗶(3000, 0.3, 'sine', 0.05, 1500, 0.05); },
+  開始: () => 嗶(880, 0.3, 'square', 0.1),
+  KO: () => { 嗶(420, 0.9, 'sawtooth', 0.16, 45); 沙(0.5, 0.2, 800, 100); },
+  勝: () => 旋律([523, 659, 784, 1047, 784, 1047], 0.13, 'square', 0.09),
+  輸: () => 旋律([392, 330, 262, 196], 0.2, 'triangle', 0.12),
+  解鎖: () => 旋律([440, 554, 659, 880, 1109, 1319], 0.09, 'triangle', 0.11),
+  錯: () => 嗶(150, 0.2, 'square', 0.08),
+  衝: () => 沙(0.22, 0.2, 500, 3500),
+  重擊: () => { 嗶(140, 0.28, 'square', 0.2, 50); 沙(0.15, 0.25, 1800, 300); },
+  閃: () => 嗶(1500, 0.08, 'sine', 0.06, 2400),
+  大絕(型, i) {
+    嗶(180 + i * 25, 0.45, 'sawtooth', 0.09, 900 + i * 40);   // 每位劍士的「集氣」音高不一樣
+    if (型 === 'aura' || 型 === 'sun') 沙(0.8, 0.25, 300, 1200, 0.1);
+    else if (型 === 'wave' || 型 === 'tornado') 沙(1.0, 0.25, 400, 2500, 0.1);
+    else if (型 === 'teleport') { 沙(0.15, 0.3, 4000, 6000, 0.05); 嗶(1800, 0.25, 'square', 0.1, 200, 0.05); }
+    else if (型 === 'ice') 音效.冰();
+    else if (型 === 'claw') { 嗶(880, 0.25, 'sine', 0.1, 520); 沙(0.35, 0.3, 3000, 6000, 0.1); }
+    else if (型 === 'icespikes') { 音效.冰(); 沙(0.6, 0.25, 2500, 600, 0.1); }
+    else if (型 === 'foxfire') { 沙(0.9, 0.22, 300, 1400, 0.05); 嗶(660, 0.4, 'sine', 0.08, 1320, 0.1); }
+    else if (型 === 'rock') 嗶(90, 0.5, 'square', 0.18, 40, 0.35);
+    else if (型 === 'ring') for (let k = 0; k < 4; k++) 嗶(500 + k * 120, 0.2, 'sine', 0.12, 300, k * 0.12);
+    else if (型 === 'beam') 旋律([523, 587, 659, 698, 784, 880, 988], 0.06, 'sine', 0.1);
+    else if (型 === 'butterfly' || 型 === 'petal') 旋律([1319, 1175, 1568, 1319, 1760], 0.07, 'triangle', 0.07);
+    else 沙(0.3, 0.25, 1000, 4000, 0.05);
+  }
+};
+// 廣告的小音樂
+const 廣告曲 = [523, 659, 784, 659, 587, 698, 880, 698];
+let 廣告拍 = 0;
+
+// ===================== 密碼(存進度用) =====================
+function 產生密碼() {
+  const n = (解鎖數 - 5) * 5 + (顏色數 - 1), a = n + 17;
+  const d3 = (n * 7 + 3) % 10, d4 = (n * 3 + d3 + 1) % 10;
+  return '' + Math.floor(a / 10) + (a % 10) + d3 + d4;
+}
+function 檢查密碼(s) {
+  if (!/^\d{4}$/.test(s)) return false;
+  const n = parseInt(s.slice(0, 2), 10) - 17;
+  if (n < 0 || n > (解鎖上限 - 5) * 5 + 4) return false;
+  const d3 = (n * 7 + 3) % 10, d4 = (n * 3 + d3 + 1) % 10;
+  if (+s[2] !== d3 || +s[3] !== d4) return false;
+  解鎖數 = Math.floor(n / 5) + 5; 顏色數 = n % 5 + 1; return true;
+}
+
+// ===================== 鍵盤(用 e.code,中文輸入法也能用) =====================
+function 取得焦點() { try { window.focus(); cv.focus({ preventScroll: true }); } catch (e) {} }
+function 鍵名(e) {
+  const c = e.code || '';
+  if (c.indexOf('Key') === 0) return c.slice(3).toLowerCase();
+  if (c.indexOf('Digit') === 0) return c.slice(5);
+  if (c.indexOf('Numpad') === 0 && c.length === 7) return c.slice(6);
+  if (c === 'Space') return ' ';
+  if (c === 'Enter' || c === 'NumpadEnter') return 'Enter';
+  if (c === 'Escape' || c === 'Backspace') return c;
+  if (c === 'ArrowLeft') return 'a';
+  if (c === 'ArrowRight') return 'd';
+  if (c === 'ArrowUp') return 'w';
+  if (c === 'ArrowDown') return 's';
+  const k = e.key || '';
+  return k.length === 1 ? k.toLowerCase() : k;
+}
+const 遊戲鍵 = ['Shift', 'a', 'd', 'w', 's', 'j', 'k', 'l', 'c', ' ', 'Enter', 'Escape', 'Backspace', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+window.addEventListener('keydown', e => {
+  const k = 鍵名(e);
+  if (遊戲鍵.indexOf(k) < 0) return;
+  e.preventDefault(); 用過鍵盤 = true; 開音效();
+  if (!keys[k]) pressed[k] = true;
+  keys[k] = true;
+});
+window.addEventListener('keyup', e => { keys[鍵名(e)] = false; });
+window.addEventListener('blur', () => { keys = {}; });
+
+// ===================== 滑鼠 / 手指 =====================
+function 座標(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+cv.addEventListener('pointermove', e => { mouse = 座標(e); });
+cv.addEventListener('pointerdown', e => {
+  取得焦點();
+  const p = 座標(e); mouse = p;
+  for (let i = btns.length - 1; i >= 0; i--) {
+    const b = btns[i];
+    if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { 開音效(); if (!b.off) { 音效.點(); b.act(); } else 音效.錯(); return; }
+  }
+  點空白處();
+});
+window.addEventListener('pointerdown', () => { 取得焦點(); 開音效(); });
+document.getElementById('mute').addEventListener('click', e => { 靜音 = !靜音; e.currentTarget.textContent = 靜音 ? '🔇 音效:關' : '🔊 音效:開'; 取得焦點(); });
+// 觸控按鈕
+pad.querySelectorAll('button').forEach(b => {
+  const k = b.dataset.k;
+  const 放開 = () => { keys[k] = false; b.classList.remove('on'); };
+  b.addEventListener('pointerdown', e => { e.preventDefault(); if (!keys[k]) pressed[k] = true; keys[k] = true; b.classList.add('on'); try { b.setPointerCapture(e.pointerId); } catch (er) {} });
+  b.addEventListener('pointerup', 放開);
+  b.addEventListener('pointercancel', 放開);
+  b.addEventListener('lostpointercapture', 放開);
+});
+function 點空白處() {
+  if (scene === 'victory' && 場景時間 > 0.8) 勝利動畫結束();
+  else if (scene === 'unlockAnim' && 場景時間 > 1) 解鎖動畫結束();
+  else if (scene === 'title') 換場景('pickP');
+}
+
+// ===================== 畫圖小工具 =====================
+function 圓角(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function 字(t, x, y, size, color, align, weight, 描邊) {
+  ctx.font = (weight || 'bold') + ' ' + size + 'px ' + 字型;
+  ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+  if (描邊) { ctx.lineWidth = 描邊; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.lineJoin = 'round'; ctx.strokeText(t, x, y); }
+  ctx.fillStyle = color || '#fff'; ctx.fillText(t, x, y);
+}
+function 按鈕(x, y, w, h, label, act, opt) {
+  opt = opt || {};
+  const hover = mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
+  圓角(x, y, w, h, 12);
+  ctx.fillStyle = opt.off ? 'rgba(60,55,75,.7)' : (opt.主 ? '#f5b335' : (hover ? '#3a3352' : 'rgba(30,26,42,.92)'));
+  ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = opt.off ? '#555' : (opt.主 ? '#ffd27a' : (hover ? '#f5b335' : '#4a4266')); ctx.stroke();
+  字(label, x + w / 2, y + h / 2 + 1, opt.size || 18, opt.off ? '#8a8496' : (opt.主 ? '#1c1405' : '#f4ecdd'));
+  btns.push({ x, y, w, h, act, off: opt.off });
+}
+function 提示(t) {
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, H - 22, W, 22);
+  字(t, W / 2, H - 11, 13, '#f4ecdd', 'center', 'normal');
+}
+function 選單提示() {
+  提示(用過鍵盤 ? '⌨️ A D W S 移動 · J 確定 · L 返回 · 也可以用滑鼠點' : '👆 鍵盤沒反應?先點一下畫面,或直接用滑鼠點選');
+}
+
+// ===================== 畫劍士 =====================
+// pose: idle / walk / attack / guard / hit / jump / win / ult
+function 畫劍士(i, 色, x, y, s, facing, pose, prog, opt) {
+  opt = opt || {};
+  const d = 劍士們[i];
+  const 衣 = 色 ? 變色[色] : d.衣;
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(facing * s, s);
+  const bob = pose === 'walk' ? Math.sin(時間 * 14) * 3 : (pose === 'idle' ? Math.sin(時間 * 3) * 1.5 : 0);
+  const 步 = pose === 'walk' ? Math.sin(時間 * 14) * 7 : 0;
+  if (d.造型 === '休閒') 畫休閒劍士(d, 衣, pose, bob, 步);
+  else {
+  // 腳(穿長裙的只看到拖鞋)
+  if (d.裙) { ctx.fillStyle = '#f2d8d0'; ctx.fillRect(-13 - 步 * 0.3, -3, 10, 3); ctx.fillRect(3 + 步 * 0.3, -3, 10, 3); }
+  else {
+  ctx.strokeStyle = '#2b2633'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (pose === 'jump') { ctx.moveTo(-7, -38); ctx.lineTo(-14, -14); ctx.moveTo(7, -38); ctx.lineTo(14, -18); }
+  else { ctx.moveTo(-7, -38); ctx.lineTo(-13 - 步, 0); ctx.moveTo(7, -38); ctx.lineTo(13 + 步, 0); }
+  ctx.stroke();
+  }
+  ctx.translate(0, bob);
+  if (d.尾) { // 狐狸 / 貓尾巴
+    for (let k = 0; k < d.尾; k++) {
+      const a = (d.尾 === 1 ? -2.6 : -2.2 + k * 0.28) + Math.sin(時間 * 3 + k) * 0.08;
+      ctx.strokeStyle = d.衣; ctx.lineWidth = 9; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-10, -42); ctx.quadraticCurveTo(-10 + Math.cos(a) * 20, -42 + Math.sin(a) * 10, -10 + Math.cos(a) * 34, -42 + Math.sin(a) * 30); ctx.stroke();
+      ctx.fillStyle = '#fff6ea'; ctx.beginPath(); ctx.arc(-10 + Math.cos(a) * 34, -42 + Math.sin(a) * 30, 5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // 長頭髮在身體後面
+  if (d.髮型 === 1) { ctx.fillStyle = d.髮; 圓角(-20, -100, 30, 50, 10); ctx.fill(); }
+  if (d.髮型 === 4) { ctx.fillStyle = d.髮; ctx.beginPath(); ctx.moveTo(-12, -96); ctx.quadraticCurveTo(-34, -80 + Math.sin(時間 * 6) * 4, -28, -58); ctx.lineTo(-20, -60); ctx.quadraticCurveTo(-24, -80, -8, -92); ctx.fill(); }
+  // 後手
+  ctx.strokeStyle = '#f2c9a5'; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(-6, -66); ctx.lineTo(-14, -48); ctx.stroke();
+  if (d.裙) { // 長裙:粉紅兩邊、白色中間、紅色滾邊
+    ctx.fillStyle = 衣; ctx.beginPath(); ctx.moveTo(-15, -74); ctx.lineTo(15, -74); ctx.lineTo(24, -4); ctx.lineTo(-24, -4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fbf6f4'; ctx.beginPath(); ctx.moveTo(-7, -72); ctx.lineTo(7, -72); ctx.lineTo(10, -4); ctx.lineTo(-10, -4); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#d0303a'; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.fillStyle = '#d0303a'; ctx.fillRect(-15, -52, 30, 2.5);
+  }
+  // 衣服(羽織)
+  ctx.fillStyle = 衣;
+  if (!d.裙) {
+  ctx.beginPath(); ctx.moveTo(-17, -74); ctx.lineTo(17, -74); ctx.lineTo(25, -30); ctx.lineTo(-25, -30); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2; ctx.stroke();
+  if (i === 12 && !色) { // 彩虹衣服
+    const 虹 = ['#ff5a5a', '#ffa53a', '#ffe14a', '#5ad16b', '#4aa8ff', '#9b6bff'];
+    虹.forEach((c, k) => { ctx.fillStyle = c; ctx.fillRect(-24 + k * 0.6, -50 + k * 3, 48 - k * 1.2, 3); });
+  }
+  // 腰帶 + 領口
+  ctx.fillStyle = '#f4ecdd'; ctx.fillRect(-21, -46, 42, 5);
+  ctx.fillStyle = '#1f1b28'; ctx.beginPath(); ctx.moveTo(-7, -74); ctx.lineTo(7, -74); ctx.lineTo(0, -60); ctx.fill();
+  }
+  // 頭
+  ctx.fillStyle = d.皮 || '#f6d2b0'; ctx.beginPath(); ctx.arc(0, -89, 15, 0, Math.PI * 2); ctx.fill();
+  if (d.耳) [[-12, -100], [8, -102]].forEach(([ex, ey]) => { ctx.fillStyle = d.衣; ctx.beginPath(); ctx.moveTo(ex - 7, ey + 4); ctx.lineTo(ex, ey - 16); ctx.lineTo(ex + 7, ey + 4); ctx.fill(); ctx.fillStyle = '#fff6ea'; ctx.beginPath(); ctx.moveTo(ex - 3, ey + 2); ctx.lineTo(ex, ey - 8); ctx.lineTo(ex + 3, ey + 2); ctx.fill(); });
+  // 頭髮
+  ctx.fillStyle = d.髮;
+  ctx.beginPath(); ctx.arc(0, -92, 16, Math.PI * 1.05, Math.PI * 1.95); ctx.lineTo(16, -90); ctx.lineTo(-16, -90); ctx.fill();
+  if (d.髮型 === 0) { ctx.beginPath(); ctx.moveTo(-16, -96); ctx.lineTo(-24, -112); ctx.lineTo(-8, -104); ctx.lineTo(-4, -120); ctx.lineTo(4, -106); ctx.lineTo(14, -116); ctx.lineTo(14, -98); ctx.fill(); }
+  if (d.髮型 === 3) { ctx.beginPath(); ctx.arc(-4, -110, 8, 0, Math.PI * 2); ctx.fill(); }
+  if (d.髮型 === 1) { ctx.fillRect(-17, -98, 8, 22); }
+  // 頭帶(鬼不戴)
+  if (!d.鬼 && !d.無頭帶) {
+  ctx.fillStyle = 衣 === '#ffffff' ? '#ff5a5a' : '#f4ecdd';
+  ctx.fillRect(-15, -98, 30, 4);
+  ctx.beginPath(); ctx.moveTo(-15, -97); ctx.lineTo(-27, -100 + Math.sin(時間 * 8) * 3); ctx.lineTo(-27, -92 + Math.sin(時間 * 8) * 3); ctx.fill();
+  }
+  if (d.花) 字('🌺', -11, -101, 12);
+  // 眼睛
+  ctx.fillStyle = d.眼色 || '#1f1b28';
+  if (pose === 'hit') { ctx.fillStyle = '#1f1b28'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('><', 8, -86); }
+  else { ctx.fillRect(5, -91, 3, 5); ctx.fillRect(11, -91, 3, 5); }
+  if (d.珍珠) { ctx.fillStyle = '#ffffff'; for (let k = 0; k < 7; k++) { ctx.beginPath(); ctx.arc(-12 + k * 4.2, -99 + Math.sin(k * 0.9) * 1.5 + Math.abs(k - 3) * 0.6, 1.6, 0, Math.PI * 2); ctx.fill(); } }
+  if (d.虎牙 && pose !== 'hit') { ctx.fillStyle = '#ffffff'; [7, 11].forEach(x => { ctx.beginPath(); ctx.moveTo(x - 1.2, -82); ctx.lineTo(x + 1.2, -82); ctx.lineTo(x, -79); ctx.fill(); }); }
+  if (d.項圈) { ctx.fillStyle = '#d0505a'; ctx.fillRect(-6, -76, 12, 3); }
+  if (d.舌) { ctx.fillStyle = '#e8607a'; ctx.beginPath(); ctx.arc(9, -81, 2.2, 0, Math.PI); ctx.fill(); }
+  if (pose === 'win') { ctx.strokeStyle = '#1f1b28'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(9, -82, 4, 0.2, Math.PI - 0.2); ctx.stroke(); }
+  if (d.臉紋) { ctx.fillStyle = '#d0304a'; ctx.fillRect(5, -85, 3, 4); ctx.fillRect(11, -85, 3, 4); }
+  }
+  // 劍的角度
+  let ang = -0.9, 手x = 12, 手y = -58;
+  if (pose === 'attack') ang = -1.9 + (1 - prog) * 2.6;
+  if (pose === 'guard') { ang = -1.45; 手x = 20; 手y = -62; }
+  if (pose === 'win' || pose === 'ult') { ang = -1.57; 手x = 8; 手y = -92; }
+  if (pose === 'hit') ang = 0.4;
+  // 前手(休閒劍士有袖子)
+  ctx.strokeStyle = d.造型 === '休閒' ? (d.格子 ? 衣 : d.外套) : '#f2c9a5'; ctx.lineWidth = d.造型 === '休閒' ? 8 : 7;
+  ctx.beginPath(); ctx.moveTo(6, -66); ctx.lineTo(手x, 手y); ctx.stroke();
+  // 劍(或金扇子)
+  ctx.save(); ctx.translate(手x, 手y); ctx.rotate(ang);
+  if (d.武器 === '扇') 畫扇子(1);
+  else {
+  ctx.fillStyle = '#3a2a1a'; ctx.fillRect(-12, -2.5, 12, 5);
+  if (d.造型 === '休閒' || d.金柄) { ctx.fillStyle = '#e0a52a'; ctx.fillRect(-14, -3, 15, 6); ctx.fillRect(-2, -9, 5, 18); ctx.beginPath(); ctx.arc(-15, 0, 4, 0, Math.PI * 2); ctx.fill(); }
+  else { ctx.fillStyle = '#d9a63a'; ctx.fillRect(-1, -6, 4, 12); }
+  ctx.fillStyle = opt.劍光 || d.劍刃 || '#e4ecf5'; ctx.beginPath(); ctx.moveTo(3, -3); ctx.lineTo(56, -2); ctx.lineTo(62, 0); ctx.lineTo(56, 3); ctx.lineTo(3, 3); ctx.fill();
+  ctx.fillStyle = d.衣; ctx.globalAlpha = 0.6; ctx.fillRect(8, -1, 46, 2); ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  // 揮劍的光弧
+  if (pose === 'attack' && prog > 0.2 && prog < 0.85) {
+    if (opt.招 === 'combo3') { ctx.strokeStyle = 'rgba(255,210,58,.9)'; ctx.lineWidth = 9; ctx.beginPath(); ctx.arc(10, -60, 76, -2.2, 1.2); ctx.stroke(); }
+    else if (opt.招 === 'air') { ctx.strokeStyle = 'rgba(150,220,255,.85)'; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(10, -40, 66, -1.2, 1.5); ctx.stroke(); }
+    else { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(10, -60, 62, -1.6, 0.6); ctx.stroke(); }
+  }
+  // 防禦盾
+  if (pose === 'guard') {
+    ctx.strokeStyle = 'rgba(120,200,255,.85)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(10, -55, 52, -1.2, 1.2); ctx.stroke();
+  }
+  ctx.restore();
+  // 被蜘蛛絲綁住
+  if (opt.網) { 字('🕸️', x, y - 60 * s, 90 * s); }
+  // 冰凍
+  else if (opt.冰) { ctx.fillStyle = 'rgba(160,225,255,.55)'; 圓角(x - 30 * s, y - 125 * s, 60 * s, 125 * s, 8); ctx.fill(); 字('❄️', x, y - 130 * s, 18 * s); }
+  if (opt.閃) { ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(x, y - 60 * s, 40 * s, 0, Math.PI * 2); ctx.fill(); }
+}
+
+// 金扇子(白色羽毛扇骨 + 金色把手 + 綠色流蘇)
+function 畫扇子(s) {
+  ctx.save(); ctx.scale(s, s);
+  for (let k = 0; k < 7; k++) { ctx.save(); ctx.rotate(-0.6 + k * 0.2); ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#d8b04a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(24, 0, 20, 3.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  ctx.fillStyle = '#e0a52a'; ctx.fillRect(-6, -3, 10, 6); ctx.beginPath(); ctx.arc(-6, 0, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#c8e04a'; ctx.fillRect(-9, 3, 4, 10); ctx.fillRect(-4, 3, 4, 9);
+  ctx.restore();
+}
+// 休閒劍士:黑色亂髮、開襟外套、喇叭褲、拖鞋(口罩、眨眼、格子可以開關)
+function 畫休閒劍士(d, 衣, pose, bob, 步) {
+  const 腳 = pose === 'jump' ? [[-8, -14], [10, -18]] : [[-13 - 步, 0], [13 + 步, 0]];
+  // 喇叭褲 + 拖鞋
+  腳.forEach((f, k) => {
+    const hx = k ? 7 : -7, fx = f[0], fy = f[1];
+    ctx.fillStyle = d.褲 || '#24395a';
+    ctx.beginPath(); ctx.moveTo(hx - 8, -42); ctx.lineTo(hx + 8, -42); ctx.lineTo(fx + 11, fy - 3); ctx.lineTo(fx - 11, fy - 3); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#f2e4a6'; ctx.fillRect(fx - 9, fy - 4, 18, 4);
+  });
+  ctx.translate(0, bob);
+  // 後手(袖子 + 黑手套)
+  ctx.strokeStyle = d.格子 ? 衣 : d.外套; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-8, -68); ctx.lineTo(-15, -46); ctx.stroke();
+  ctx.fillStyle = d.手套 === false ? (d.皮 || '#f6d6bd') : '#1a1a1e'; ctx.beginPath(); ctx.arc(-15, -45, 4.5, 0, Math.PI * 2); ctx.fill();
+  if (d.武器 === '扇') { ctx.save(); ctx.translate(-15, -44); ctx.rotate(2.2); 畫扇子(0.8); ctx.restore(); }
+  // 深藍襯衫
+  ctx.fillStyle = 衣; 圓角(-14, -75, 28, 37, 4); ctx.fill();
+  // 皮帶(皇上是黑色腰帶 + 紅色帶子)
+  if (d.腰帶 === '黑') { ctx.fillStyle = '#1a1a1e'; ctx.fillRect(-15, -46, 30, 6); ctx.fillStyle = '#9a1a2a'; ctx.fillRect(-14, -42, 5, 16); }
+  else { ctx.fillStyle = '#f4f4f4'; ctx.fillRect(-14, -44, 28, 4); }
+  // 打開的外套
+  [-1, 1].forEach(sd => {
+    ctx.fillStyle = d.外套;
+    ctx.beginPath(); ctx.moveTo(sd * 5, -75); ctx.lineTo(sd * 19, -75); ctx.lineTo(sd * 23, -36); ctx.lineTo(sd * 9, -36); ctx.closePath(); ctx.fill();
+    if (d.格子) {
+      ctx.save(); ctx.clip();
+      ctx.strokeStyle = 'rgba(140,145,160,.55)'; ctx.lineWidth = 1.2;
+      for (let y = -74; y < -36; y += 6) { ctx.beginPath(); ctx.moveTo(-25, y); ctx.lineTo(25, y); ctx.stroke(); }
+      for (let x = -24; x < 25; x += 6) { ctx.beginPath(); ctx.moveTo(x, -76); ctx.lineTo(x, -35); ctx.stroke(); }
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = 'rgba(150,90,10,.45)'; ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.fillStyle = '#fff3d0'; for (let y = -70; y < -40; y += 9) { ctx.beginPath(); ctx.arc(sd * 7, y, 1.2, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = 'rgba(150,90,10,.35)'; ctx.fillRect(sd > 0 ? 9 : -23, -40, 14, 3);
+    }
+    // 肩膀
+    ctx.fillStyle = d.格子 ? '#d2d3da' : d.外套; ctx.beginPath(); ctx.moveTo(sd * 17, -75); ctx.lineTo(sd * 25, -70); ctx.lineTo(sd * 22, -60); ctx.lineTo(sd * 15, -64); ctx.fill();
+  });
+  // 白領子(格子外套才有)/ 皇上的襯衫領子
+  if (d.格子 || d.領) {
+    ctx.fillStyle = d.領 ? '#d03060' : '#ffffff';
+    ctx.beginPath(); ctx.moveTo(-9, -76); ctx.lineTo(-1, -76); ctx.lineTo(-6, -68); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(9, -76); ctx.lineTo(1, -76); ctx.lineTo(6, -68); ctx.fill();
+  }
+  // 頭
+  ctx.fillStyle = d.皮 || '#f6d6bd'; ctx.beginPath(); ctx.arc(0, -90, 15, 0, Math.PI * 2); ctx.fill();
+  if (d.項圈) { ctx.fillStyle = '#d0505a'; ctx.fillRect(-6, -77, 12, 3); ctx.fillStyle = '#e0a52a'; ctx.beginPath(); ctx.arc(0, -75.5, 1.8, 0, Math.PI * 2); ctx.fill(); }
+  // 亂亂的瀏海
+  ctx.fillStyle = d.髮;
+  ctx.beginPath(); ctx.arc(0, -94, 18, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-18, -94); ctx.lineTo(-17, -80); ctx.lineTo(-12, -88);
+  ctx.lineTo(-4, -86); ctx.lineTo(0, -95); ctx.lineTo(5, -86); ctx.lineTo(9, -94); ctx.lineTo(15, -88); ctx.lineTo(18, -94);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-6, -111); ctx.lineTo(2, -116); ctx.lineTo(4, -110); ctx.fill();
+  // 眼睛
+  const 藍眼 = (ex) => {
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(ex, -89, 3.4, 3.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = d.眼色 || '#2f6fc4'; ctx.beginPath(); ctx.arc(ex + 0.5, -88.6, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(ex + 0.6, -90, 1, 1);
+    ctx.strokeStyle = '#1f1b28'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(ex - 3.5, -92.6); ctx.lineTo(ex + 3.5, -92.6); ctx.stroke();
+  };
+  if (pose === 'hit') { ctx.fillStyle = '#1f1b28'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('><', 8, -86); }
+  else {
+    if (d.眨眼) { ctx.strokeStyle = '#1f1b28'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(3, -89, 3, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+    else 藍眼(3);
+    藍眼(11);
+  }
+  if (d.口罩) {
+    // 白口罩
+    ctx.fillStyle = '#fbfbfd'; 圓角(-2, -86, 18, 10, 4); ctx.fill();
+    ctx.strokeStyle = '#c9ccd6'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, -81); ctx.lineTo(14, -81); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2, -84); ctx.lineTo(-9, -87); ctx.stroke();
+  } else {
+    // 小嘴巴
+    ctx.fillStyle = pose === 'win' ? '#c9505a' : '#e58f95';
+    ctx.beginPath(); ctx.ellipse(8, -80, pose === 'win' ? 3 : 2.4, pose === 'win' ? 2 : 1.1, 0, 0, Math.PI * 2); ctx.fill();
+    if (d.虎牙) { ctx.fillStyle = '#ffffff'; [6, 10].forEach(x => { ctx.beginPath(); ctx.moveTo(x - 1.2, -79.5); ctx.lineTo(x + 1.2, -79.5); ctx.lineTo(x, -76.5); ctx.fill(); }); }
+  }
+  // 耳環
+  ctx.fillStyle = '#c9ccd6'; ctx.beginPath(); ctx.arc(-6, -84, 1.3, 0, Math.PI * 2); ctx.fill();
+}
+
+// ===================== 場地背景 =====================
+function 畫場地(i, t) {
+  const g = SETTINGS.地平;
+  let gr;
+  if (i === 0) { // 夜晚道場
+    gr = ctx.createLinearGradient(0, 0, 0, g); gr.addColorStop(0, '#160a04'); gr.addColorStop(1, '#4a2410');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, g);
+    for (let k = 0; k < 10; k++) {
+      const x = k * 82 + 8;
+      ctx.fillStyle = 'rgba(255,186,96,' + (0.28 + 0.12 * Math.sin(t * 1.4 + k)) + ')';
+      ctx.fillRect(x, 120, 60, 42); ctx.fillRect(x, 190, 60, 42);
+      ctx.strokeStyle = '#2a1408'; ctx.lineWidth = 3; ctx.strokeRect(x, 120, 60, 42); ctx.strokeRect(x, 190, 60, 42);
+      ctx.beginPath(); ctx.moveTo(x + 30, 120); ctx.lineTo(x + 30, 162); ctx.moveTo(x + 30, 190); ctx.lineTo(x + 30, 232); ctx.stroke();
+    }
+    ctx.fillStyle = '#241005'; ctx.beginPath(); ctx.moveTo(0, 95); ctx.lineTo(W, 95); ctx.lineTo(W - 40, 58); ctx.lineTo(40, 58); ctx.fill();
+    ctx.fillStyle = '#331707'; [70, 300, 500, 730].forEach(x => ctx.fillRect(x - 12, 58, 24, g - 58));
+    ctx.fillStyle = '#5a2e12'; ctx.fillRect(0, g - 52, W, 8);
+    for (let x = 20; x < W; x += 40) ctx.fillRect(x, g - 52, 5, 48);
+    ctx.fillRect(0, g - 10, W, 6);
+    [190, 610].forEach(x => {
+      const glow = ctx.createRadialGradient(x, 150, 5, x, 150, 90);
+      glow.addColorStop(0, 'rgba(255,140,60,.55)'); glow.addColorStop(1, 'rgba(255,140,60,0)');
+      ctx.fillStyle = glow; ctx.fillRect(x - 90, 60, 180, 180);
+      ctx.fillStyle = '#d8402a'; ctx.beginPath(); ctx.ellipse(x, 150, 18, 24, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#2a1408'; ctx.fillRect(x - 10, 124, 20, 5); ctx.fillRect(x - 10, 171, 20, 5);
+    });
+    gr = ctx.createLinearGradient(0, g, 0, H); gr.addColorStop(0, '#9a5e2c'); gr.addColorStop(1, '#5a3214');
+    ctx.fillStyle = gr; ctx.fillRect(0, g, W, H - g);
+    ctx.strokeStyle = 'rgba(40,18,6,.5)'; ctx.lineWidth = 2;
+    for (let k = -8; k <= 8; k++) { ctx.beginPath(); ctx.moveTo(W / 2 + k * 60, g); ctx.lineTo(W / 2 + k * 140, H); ctx.stroke(); }
+    for (let k = 0; k < 24; k++) {
+      const x = (R(k) * W + t * 18 * (R(k + 50) - 0.3) + W * 10) % W;
+      const y = g - ((t * 28 * (0.5 + R(k + 9)) + R(k + 3) * g) % g);
+      ctx.fillStyle = 'rgba(255,170,70,' + (0.5 + 0.5 * R(k + 4)) + ')'; ctx.fillRect(x, y, 3, 3);
+    }
+  } else if (i === 1) { // 竹林
+    gr = ctx.createLinearGradient(0, 0, 0, g); gr.addColorStop(0, '#173d25'); gr.addColorStop(1, '#78b866');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, g);
+    for (let k = 0; k < 26; k++) {
+      const 深 = k < 13 ? 0.45 : 1;
+      const x = R(k + 20) * W, w = (k < 13 ? 10 : 18) + R(k) * 6;
+      const sway = Math.sin(t * 0.8 + k) * 3 * 深;
+      ctx.fillStyle = k < 13 ? 'rgba(60,120,60,.7)' : '#3f8a3a';
+      ctx.save(); ctx.translate(x, 0); ctx.transform(1, 0, sway / g, 1, 0, 0);
+      ctx.fillRect(-w / 2, 0, w, g);
+      ctx.fillStyle = k < 13 ? 'rgba(30,70,30,.7)' : '#2a6427';
+      for (let y = 40 + R(k + 5) * 40; y < g; y += 70) ctx.fillRect(-w / 2 - 1, y, w + 2, 4);
+      ctx.restore();
+    }
+    for (let k = 0; k < 18; k++) {
+      const x = (R(k + 70) * W + t * 30) % W, y = (R(k + 90) * g + t * 40 * (0.5 + R(k))) % g;
+      ctx.fillStyle = 'rgba(160,220,120,.8)'; ctx.save(); ctx.translate(x, y); ctx.rotate(t * 2 + k);
+      ctx.beginPath(); ctx.ellipse(0, 0, 7, 2.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    gr = ctx.createLinearGradient(0, g, 0, H); gr.addColorStop(0, '#5a7a3a'); gr.addColorStop(1, '#3a4a22');
+    ctx.fillStyle = gr; ctx.fillRect(0, g, W, H - g);
+  } else if (i === 2) { // 雪山
+    gr = ctx.createLinearGradient(0, 0, 0, g); gr.addColorStop(0, '#7fa9d6'); gr.addColorStop(1, '#e4f0fb');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, g);
+    const 山 = (pts, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(0, g); pts.forEach(p => ctx.lineTo(p[0], p[1])); ctx.lineTo(W, g); ctx.fill(); };
+    山([[0, 250], [140, 120], [260, 230], [420, 90], [580, 220], [700, 140], [800, 230]], '#b9cde4');
+    ctx.fillStyle = '#fff';
+    [[140, 120], [420, 90], [700, 140]].forEach(p => { ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(p[0] - 35, p[1] + 40); ctx.lineTo(p[0] + 35, p[1] + 40); ctx.fill(); });
+    山([[0, 320], [180, 250], [360, 320], [520, 260], [800, 330]], '#dbe7f4');
+    ctx.fillStyle = '#f7fbff'; ctx.fillRect(0, g, W, H - g);
+    ctx.fillStyle = '#d6e4f2'; for (let k = 0; k < 8; k++) { ctx.beginPath(); ctx.ellipse(R(k + 33) * W, g + 30 + R(k) * 60, 50, 6, 0, 0, Math.PI * 2); ctx.fill(); }
+    for (let k = 0; k < 60; k++) {
+      const x = (R(k) * W + Math.sin(t + k) * 15 + W) % W, y = (R(k + 100) * H + t * (30 + R(k + 7) * 40)) % H;
+      ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.beginPath(); ctx.arc(x, y, 1.5 + R(k + 3) * 2, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (i === 4) { // 城市屋頂
+    gr = ctx.createLinearGradient(0, 0, 0, g); gr.addColorStop(0, '#0b1030'); gr.addColorStop(1, '#3a2a6a');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, g);
+    for (let k = 0; k < 50; k++) { ctx.fillStyle = 'rgba(255,255,255,' + (0.3 + 0.5 * Math.abs(Math.sin(t * 1.5 + k))) + ')'; ctx.fillRect(R(k) * W, R(k + 7) * 140, 2, 2); }
+    // 月亮
+    ctx.fillStyle = '#fff6d0'; ctx.beginPath(); ctx.arc(650, 80, 38, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,246,208,.15)'; ctx.beginPath(); ctx.arc(650, 80, 60, 0, Math.PI * 2); ctx.fill();
+    // 兩排大樓:遠的暗、近的亮
+    [[0.55, '#1c1a3e', 0], [1, '#141230', 50]].forEach(([深, 色, off]) => {
+      let x = -20 + off * 0.3;
+      for (let k = 0; x < W; k++) {
+        const bw = 50 + R(k + off) * 60, bh = (90 + R(k + 30 + off) * 170) * 深 + 40;
+        ctx.fillStyle = 色; ctx.fillRect(x, g - bh, bw, bh);
+        for (let wy = g - bh + 10; wy < g - 14; wy += 16) for (let wx = x + 7; wx < x + bw - 10; wx += 13) {
+          const 亮 = R(wx * 3 + wy) > 0.45;
+          if (亮) { ctx.fillStyle = 深 < 1 ? 'rgba(255,214,120,.35)' : (R(wx + wy) > 0.85 ? '#7fe3ff' : '#ffd678'); ctx.fillRect(wx, wy, 6, 8); }
+        }
+        if (深 === 1 && R(k + 77) > 0.6) { ctx.fillStyle = Math.sin(t * 4 + k) > 0 ? '#ff3b5c' : '#5a1020'; ctx.beginPath(); ctx.arc(x + bw / 2, g - bh - 6, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = 色; ctx.fillRect(x + bw / 2 - 1, g - bh - 6, 2, 6); }
+        x += bw + 6;
+      }
+    });
+    // 霓虹招牌
+    ctx.save(); ctx.shadowColor = '#ff4fd8'; ctx.shadowBlur = 14 + Math.sin(t * 5) * 4;
+    ctx.strokeStyle = '#ff7ae6'; ctx.lineWidth = 3; 圓角(90, g - 150, 110, 36, 8); ctx.stroke(); ctx.restore();
+    字('劍士拉麵', 145, g - 132, 18, '#ffd1f5');
+    // 屋頂地板 + 欄杆 + 水塔
+    gr = ctx.createLinearGradient(0, g, 0, H); gr.addColorStop(0, '#4a4a5c'); gr.addColorStop(1, '#2a2a36');
+    ctx.fillStyle = gr; ctx.fillRect(0, g, W, H - g);
+    ctx.fillStyle = '#6a6a80'; ctx.fillRect(0, g - 26, W, 4); for (let x = 10; x < W; x += 34) ctx.fillRect(x, g - 26, 3, 26);
+    ctx.fillStyle = '#5a4030'; ctx.fillRect(700, g - 110, 60, 70); ctx.fillStyle = '#3a2a20'; ctx.beginPath(); ctx.moveTo(694, g - 110); ctx.lineTo(730, g - 132); ctx.lineTo(766, g - 110); ctx.fill();
+    ctx.fillStyle = '#3a2a20'; ctx.fillRect(708, g - 40, 6, 40); ctx.fillRect(746, g - 40, 6, 40);
+  } else if (i === 5) { // 太空站
+    ctx.fillStyle = '#05040f'; ctx.fillRect(0, 0, W, g);
+    for (let k = 0; k < 90; k++) { const tw = 0.4 + 0.6 * Math.abs(Math.sin(t * (0.5 + R(k)) + k)); ctx.fillStyle = 'rgba(255,255,255,' + tw + ')'; const sz = R(k + 3) > 0.9 ? 3 : 1.6; ctx.fillRect((R(k) * W - t * 6 * (1 + R(k + 5)) + W * 10) % W, R(k + 11) * g, sz, sz); }
+    // 星雲
+    const 雲 = ctx.createRadialGradient(200, 120, 10, 200, 120, 200); 雲.addColorStop(0, 'rgba(140,80,255,.35)'); 雲.addColorStop(1, 'rgba(140,80,255,0)');
+    ctx.fillStyle = 雲; ctx.fillRect(0, 0, W, g);
+    // 轉動的地球
+    const ex = 600, ey = 150, er = 90;
+    const 光 = ctx.createRadialGradient(ex, ey, er * 0.9, ex, ey, er * 1.25); 光.addColorStop(0, 'rgba(110,190,255,.45)'); 光.addColorStop(1, 'rgba(110,190,255,0)');
+    ctx.fillStyle = 光; ctx.beginPath(); ctx.arc(ex, ey, er * 1.25, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = '#2a6fd6'; ctx.fillRect(ex - er, ey - er, er * 2, er * 2);
+    ctx.fillStyle = '#4fb36a';
+    for (let k = 0; k < 6; k++) { const lx = ex - er + ((R(k) * 360 + t * 18) % 360) - 90, ly = ey - 50 + R(k + 4) * 100; ctx.beginPath(); ctx.ellipse(lx, ly, 22 + R(k + 8) * 22, 14 + R(k + 9) * 16, R(k) * 3, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    for (let k = 0; k < 5; k++) { const cx = ex - er + ((R(k + 20) * 360 + t * 26) % 360) - 90; ctx.beginPath(); ctx.ellipse(cx, ey - 60 + R(k + 21) * 120, 26, 6, 0, 0, Math.PI * 2); ctx.fill(); }
+    const 影 = ctx.createLinearGradient(ex - er, 0, ex + er, 0); 影.addColorStop(0, 'rgba(0,0,20,0)'); 影.addColorStop(0.55, 'rgba(0,0,20,.1)'); 影.addColorStop(1, 'rgba(0,0,20,.7)');
+    ctx.fillStyle = 影; ctx.fillRect(ex - er, ey - er, er * 2, er * 2); ctx.restore();
+    // 衛星飛過
+    const sx = (t * 40) % (W + 200) - 100;
+    ctx.fillStyle = '#c8ccd8'; ctx.fillRect(sx - 6, 60, 12, 10); ctx.fillStyle = '#3a6ad0'; ctx.fillRect(sx - 26, 62, 18, 6); ctx.fillRect(sx + 8, 62, 18, 6);
+    // 太空站的大窗戶框
+    ctx.strokeStyle = '#8a90a8'; ctx.lineWidth = 14; ctx.strokeRect(-10, 20, W + 20, g - 30);
+    ctx.lineWidth = 8; [200, 400].forEach(x => { ctx.beginPath(); ctx.moveTo(x, 20); ctx.lineTo(x, g - 10); ctx.stroke(); });
+    ctx.fillStyle = '#b8bed0'; for (let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.arc(x + 10, 27, 2.5, 0, Math.PI * 2); ctx.fill(); }
+    // 金屬地板 + 會閃的燈
+    gr = ctx.createLinearGradient(0, g, 0, H); gr.addColorStop(0, '#7a8096'); gr.addColorStop(1, '#4a4f62');
+    ctx.fillStyle = gr; ctx.fillRect(0, g, W, H - g);
+    ctx.strokeStyle = 'rgba(30,34,50,.45)'; ctx.lineWidth = 2;
+    for (let k = -8; k <= 8; k++) { ctx.beginPath(); ctx.moveTo(W / 2 + k * 60, g); ctx.lineTo(W / 2 + k * 140, H); ctx.stroke(); }
+    for (let k = 0; k < 10; k++) { ctx.fillStyle = Math.floor(t * 2 + k) % 3 === 0 ? '#5affd6' : '#1f5a50'; ctx.fillRect(30 + k * 80, g + 4, 18, 4); }
+  } else { // 櫻花樹下
+    gr = ctx.createLinearGradient(0, 0, 0, g); gr.addColorStop(0, '#ffb3cf'); gr.addColorStop(1, '#fff0e6');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, g);
+    ctx.fillStyle = 'rgba(255,240,200,.8)'; ctx.beginPath(); ctx.arc(640, 120, 40, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#6b3a2a'; ctx.beginPath(); ctx.moveTo(70, g); ctx.lineTo(95, 150); ctx.lineTo(140, 90); ctx.lineTo(115, 160); ctx.lineTo(125, g); ctx.fill();
+    ctx.fillStyle = '#6b3a2a'; ctx.beginPath(); ctx.moveTo(710, g); ctx.lineTo(720, 200); ctx.lineTo(690, 140); ctx.lineTo(735, 190); ctx.lineTo(745, g); ctx.fill();
+    for (let k = 0; k < 22; k++) {
+      const cx = k < 14 ? 40 + R(k) * 200 : 640 + R(k) * 150, cy = 60 + R(k + 40) * 130;
+      ctx.fillStyle = k % 2 ? '#ffc4dc' : '#ff9cc2'; ctx.beginPath(); ctx.arc(cx, cy, 30 + R(k + 2) * 20, 0, Math.PI * 2); ctx.fill();
+    }
+    gr = ctx.createLinearGradient(0, g, 0, H); gr.addColorStop(0, '#9fcf8a'); gr.addColorStop(1, '#6fa45e');
+    ctx.fillStyle = gr; ctx.fillRect(0, g, W, H - g);
+    ctx.fillStyle = '#ffc4dc'; for (let k = 0; k < 20; k++) { ctx.beginPath(); ctx.ellipse(R(k + 60) * W, g + 10 + R(k + 61) * 85, 4, 2, 0, 0, Math.PI * 2); ctx.fill(); }
+    for (let k = 0; k < 40; k++) {
+      const x = (R(k) * W + t * 40 + Math.sin(t * 2 + k) * 20) % W, y = (R(k + 200) * H + t * (35 + R(k) * 30)) % H;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(t * 3 + k); ctx.fillStyle = '#ff8fbd';
+      ctx.beginPath(); ctx.ellipse(0, 0, 5, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+  }
+  地板線();
+}
+
+// 地板上的立體橫線,讓地板看起來斜斜的
+function 地板線() {
+  const g = SETTINGS.地平;
+  ctx.strokeStyle = 'rgba(0,0,0,.10)'; ctx.lineWidth = 1.5;
+  for (let k = 1; k <= 7; k++) { const y = g + (H - g) * Math.pow(k / 7, 1.6); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  const 霧 = ctx.createLinearGradient(0, g, 0, g + 40); 霧.addColorStop(0, 'rgba(0,0,0,.22)'); 霧.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = 霧; ctx.fillRect(0, g, W, 40);
+}
+
+// ===================== 戰鬥(真的 3D 版) =====================
+// 戰鬥座標:x 左右、z 前後(都在 -場地大小 ~ +場地大小),h 是離地多高。3D 裡 40 = 1 格
+const 半場 = SETTINGS.場地大小;
+function 新戰士(i, x, 色) {
+  return { i, d: 劍士們[i], 色, x, z: 0, h: 0, vx: 0, vz: 0, vh: 0, ang: x < 0 ? 0 : Math.PI, hp: SETTINGS.血量, gauge: 0,
+    atkT: 0, atkCD: 0, hitDone: false, atkKind: 'normal', atkLen: SETTINGS.攻擊時間, combo: 0, comboT: 0, 緩衝: 0,
+    dashT: 0, dashCD: 0, dashX: 1, dashZ: 0, guard: false, stun: 0, freeze: 0, flash: 0, ultT: 0, 走: 0 };
+}
+let 鏡 = { 震: 0 };
+function 開始比賽() {
+  鏡 = { 震: 0 };
+  F = { 聚焦: null, round: 1, pWins: 0, eWins: 0, fx: [], pops: [], ai: {}, phase: 'intro', phaseT: 0, banner: null, 勝者: null };
+  開始一局();
+  三D.準備比賽();
+  換場景('fight');
+}
+function 開始一局() {
+  const e色 = 選E === 選P ? (選色 + 1) % 變色.length : 0;
+  F.p = 新戰士(選P, -180, 選色);
+  F.e = 新戰士(選E, 180, e色);
+  F.fx = []; F.pops = []; F.banner = null; F.勝者 = null; F.聚焦 = null;
+  F.ai = { t: 0.5, guardT: 0, move: 0, strafe: 0 }; F.上次按 = { a: -9, d: -9 };
+  F.phase = 'intro'; F.phaseT = 1.5;
+  三D.換局();
+}
+function 能動(f) { return f.freeze <= 0 && f.stun <= 0; }
+function 在地上(f) { return f.h <= 0.5; }
+// 從 f 看 op:距離和方向
+function 看(f, op) { const dx = op.x - f.x, dz = op.z - f.z, dist = Math.hypot(dx, dz) || 0.001; return { dx, dz, dist, ux: dx / dist, uz: dz / dist }; }
+function 出招(f) {
+  f.hitDone = false; f.dashT = 0;
+  if (!在地上(f)) {                       // 空中攻擊:往下劈
+    f.atkKind = 'air'; f.atkLen = 0.32; f.atkT = 0.32; f.atkCD = 0.45;
+    f.vh = Math.min(f.vh, 0) - 380; 音效.揮(); return;
+  }
+  f.combo = f.comboT > 0 && f.combo < 3 ? f.combo + 1 : 1;   // 三連擊
+  f.comboT = 0;
+  f.atkKind = f.combo === 3 ? 'combo3' : 'normal';
+  f.atkLen = f.combo === 3 ? 0.36 : SETTINGS.攻擊時間;
+  f.atkT = f.atkLen; f.atkCD = f.combo === 3 ? 0.55 : 0.3;
+  音效.揮();
+}
+function 衝刺(f, dx, dz) {
+  if (f.dashCD > 0 || !在地上(f) || f.atkT > 0) return;
+  const L = Math.hypot(dx, dz) || 1;
+  f.dashT = 0.2; f.dashCD = 0.6; f.dashX = dx / L; f.dashZ = dz / L; 音效.衝();
+}
+function 打中(t, dmg, src, isUlt, freeze, 種) {
+  if (t.dashT > 0) { F.pops.push({ x: t.x, z: t.z, h: t.h + 130, text: '閃!', color: '#9ff', t: 0 }); 音效.閃(); return; }
+  let blocked = false;
+  if (t.guard) { blocked = true; dmg = isUlt ? dmg / 2 : 0; }
+  const v = 看(src, t);
+  if (dmg > 0) {
+    t.hp = Math.max(0, t.hp - dmg);
+    const 飛 = 種 === 'combo3';
+    t.stun = isUlt ? 0.55 : 飛 ? 0.45 : 種 === 'air' ? 0.35 : 0.22; t.atkT = 0; t.flash = 0.15;
+    const k = isUlt ? 420 : 飛 ? 560 : 260;
+    t.vx = v.ux * k; t.vz = v.uz * k;
+    if ((isUlt || 飛) && 在地上(t)) t.vh = 飛 ? 300 : 260;
+    t.guard = false;
+  } else {
+    t.vx = v.ux * 120; t.vz = v.uz * 120;
+  }
+  if (!isUlt && !blocked) src.gauge = Math.min(SETTINGS.能量滿, src.gauge + 1);
+  if (freeze && !blocked) { t.freeze = freeze; t.綁 = 種 === 'web' ? freeze : 0; }
+  鏡.震 = Math.max(鏡.震, isUlt ? 18 : (dmg > 0 ? 6 : 3));
+  if (blocked && dmg === 0) 音效.擋(); else if (isUlt) 音效.大中(); else if (種 === 'combo3' || 種 === 'air') 音效.重擊(); else 音效.中();
+  F.pops.push({ x: t.x, z: t.z, h: t.h + 130, text: blocked && dmg === 0 ? '擋住!' : (種 === 'web' && !blocked ? '被綁住!-' : 種 === 'combo3' && !blocked ? '三連擊!-' : 種 === 'air' && !blocked ? '空中劈!-' : '-') + dmg, color: blocked ? '#8fd3ff' : (isUlt ? '#ffd23a' : '#fff'), t: 0, big: isUlt || 種 === 'combo3' });
+}
+const 大絕範圍 = { aura: 110, sun: 160, petal: 250, whip: 260, ring: 240, icespikes: 290, claw: 300 };
+function 放大絕(me, op) {
+  me.gauge = 0; me.ultT = 0.45; me.atkT = 0; 音效.大絕(me.d.型, me.i);
+  F.banner = { text: me.d.符 + ' ' + me.d.絕 + '!', color: me.d.外套 || me.d.衣, t: 0 };
+  F.聚焦 = { who: me, t: 0.55 };
+  const v = 看(me, op), ux = v.ux, uz = v.uz, rx = -uz, rz = ux;
+  me.ang = Math.atan2(uz, ux);
+  const grp = { hit: false };
+  const add = o => F.fx.push(Object.assign({ owner: me, grp, t: 0, life: 1, x: me.x, z: me.z, h: 50, vx: 0, vz: 0, vh: 0, sym: me.d.符, delay: 0, kind: 'circle' }, o));
+  const 飛彈 = (speed, o) => add(Object.assign({ x: me.x + ux * 40, z: me.z + uz * 40, vx: ux * speed, vz: uz * speed }, o));
+  const 直線 = (len, w, h0, h1, o) => add(Object.assign({ kind: 'seg', ox: me.x, oz: me.z, ux, uz, len, w, h0, h1 }, o));
+  switch (me.d.型) {
+    case 'aura': add({ r: 115, life: 0.75, follow: true, draw: 'spin' }); break;
+    case 'sun': add({ r: 165, life: 0.85, follow: true, draw: 'burst' }); break;
+    case 'wave': 飛彈(520, { h: 35, r: 42, life: 2.5, draw: 'emoji', size: 76 }); break;
+    case 'tornado': 飛彈(300, { h: 40, r: 52, life: 3.2, draw: 'tornado' }); break;
+    case 'ice': 飛彈(600, { h: 55, r: 32, life: 2, draw: 'emoji', size: 52, freeze: SETTINGS.冰凍秒數 }); break;
+    case 'moon': 飛彈(820, { h: 55, r: 32, life: 1.5, draw: 'emoji', size: 58, spin: true }); break;
+    case 'butterfly':
+      for (let k = 0; k < 5; k++) {
+        const sp = 200 + k * 30, side = (k - 2) * 80;
+        add({ h: 40 + k * 10, r: 28, vx: ux * sp + rx * side, vz: uz * sp + rz * side, life: 3, draw: 'emoji', size: 34, home: op });
+      }
+      break;
+    case 'rock': add({ x: op.x, z: op.z, h: 600, vh: -150, ah: -1900, r: 50, life: 1.6, draw: 'rock', delay: 0.3, 落: true }); break;
+    case 'teleport': {
+      let nx = op.x + ux * 65, nz = op.z + uz * 65;
+      if (Math.abs(nx) > 半場 || Math.abs(nz) > 半場) { nx = op.x - ux * 65; nz = op.z - uz * 65; }
+      me.x = clamp(nx, -半場, 半場); me.z = clamp(nz, -半場, 半場);
+      const w = 看(me, op); me.ang = Math.atan2(w.uz, w.ux);
+      add({ x: op.x, z: op.z, h: op.h + 50, r: 62, life: 0.4, draw: 'zap', delay: 0.05 });
+      break;
+    }
+    case 'petal': 直線(260, 70, 0, 160, { life: 0.9, draw: 'petals' }); break;
+    case 'whip': 直線(270, 26, 24, 76, { life: 0.45, draw: 'whip' }); break;
+    case 'beam': 直線(900, 30, 20, 80, { life: 0.7, draw: 'beam' }); break;
+    case 'ring': add({ r: 30, r0: 30, r1: 250, life: 0.8, follow: true, draw: 'ring' }); break;
+    case 'foxfire':   // 三顆藍色狐火,會追著對手
+      for (let k = 0; k < 3; k++) { const side = (k - 1) * 160; add({ h: 70 + k * 15, r: 30, vx: ux * 260 + rx * side, vz: uz * 260 + rz * side, life: 3.2, draw: 'foxfire', sym: '🔥', home: op }); }
+      break;
+    case 'web': 飛彈(560, { h: 60, r: 38, life: 2, draw: 'web', sym: '🕸️', size: 70, freeze: SETTINGS.冰凍秒數, 綁: true }); break;
+    case 'claw':   // 往前衝刺,留下貓爪痕
+      直線(320, 55, 0, 130, { life: 0.6, draw: 'claw', sym: '🐾' });
+      me.dashT = 0.36; me.dashCD = 0.5; me.dashX = ux; me.dashZ = uz;
+      break;
+    case 'icespikes': 直線(300, 60, 0, 150, { life: 1.0, draw: 'icespikes', sym: '❄️', freeze: 1 }); break;
+  }
+}
+function 碰到(fx, t) {
+  if (fx.kind === 'seg') {
+    const px = t.x - fx.ox, pz = t.z - fx.oz;
+    const along = px * fx.ux + pz * fx.uz, perp = Math.abs(-px * fx.uz + pz * fx.ux);
+    return along > -20 && along < fx.len + 20 && perp < fx.w + 20 && t.h < fx.h1 && t.h + 100 > fx.h0;
+  }
+  const d = Math.hypot(fx.x - t.x, fx.z - t.z);
+  return d < fx.r + 20 && fx.h + fx.r > t.h && fx.h - fx.r < t.h + 100;
+}
+function 更新特效(dt) {
+  for (let i = F.fx.length - 1; i >= 0; i--) {
+    const fx = F.fx[i];
+    fx.t += dt;
+    if (fx.follow) { fx.x = fx.owner.x; fx.z = fx.owner.z; fx.h = fx.owner.h + 50; }
+    if (fx.r1) fx.r = fx.r0 + (fx.r1 - fx.r0) * Math.min(1, fx.t / fx.life);
+    if (fx.home && fx.t > 0.25) {   // 蝴蝶會追著對手飛
+      const tx = fx.home.x - fx.x, tz = fx.home.z - fx.z, th = fx.home.h + 55 - fx.h, L = Math.hypot(tx, tz, th) || 1;
+      fx.vx += tx / L * 900 * dt; fx.vz += tz / L * 900 * dt; fx.vh += th / L * 900 * dt;
+      const sp = Math.hypot(fx.vx, fx.vz, fx.vh); if (sp > 330) { fx.vx *= 330 / sp; fx.vz *= 330 / sp; fx.vh *= 330 / sp; }
+    }
+    if (fx.t >= fx.delay) {
+      if (fx.ah) fx.vh += fx.ah * dt;
+      if (fx.kind !== 'seg') { fx.x += fx.vx * dt; fx.z += fx.vz * dt; fx.h += fx.vh * dt; }
+      if (fx.落 && fx.h < 45) { fx.h = 45; fx.vh = 0; fx.ah = 0; }
+      const 對手 = fx.owner === F.p ? F.e : F.p;
+      if (!fx.grp.hit && F.phase === 'go' && 碰到(fx, 對手)) {
+        fx.grp.hit = true;
+        打中(對手, SETTINGS.大絕傷害, fx.owner, true, fx.freeze, fx.綁 ? 'web' : undefined);
+        if (fx.vx || fx.vz || fx.vh) fx.life = Math.min(fx.life, fx.t + 0.15);
+      }
+    }
+    if (fx.t > fx.life || (fx.kind !== 'seg' && (Math.abs(fx.x) > 700 || Math.abs(fx.z) > 700))) F.fx.splice(i, 1);
+  }
+  for (let i = F.pops.length - 1; i >= 0; i--) { F.pops[i].t += dt; if (F.pops[i].t > 0.9) F.pops.splice(i, 1); }
+  if (F.banner) { F.banner.t += dt; if (F.banner.t > 1.1) F.banner = null; }
+  if (F.聚焦 && F.聚焦.t > 0) F.聚焦.t -= dt;
+}
+function 劍士計時(f, op, dt) {
+  f.atkCD -= dt; f.stun -= dt; f.freeze -= dt; f.flash -= dt; f.ultT -= dt;
+  f.dashT -= dt; f.dashCD -= dt; f.緩衝 -= dt; f.綁 = (f.綁 || 0) - dt;
+  const v = 看(f, op);
+  if (f.atkT > 0) {
+    f.atkT -= dt;
+    const 空 = f.atkKind === 'air';
+    if (!f.hitDone && (空 || f.atkT <= f.atkLen - 0.1)) {
+      const dh = op.h - f.h;
+      const 前 = Math.cos(f.ang) * v.ux + Math.sin(f.ang) * v.uz > 0.45;   // 對手在前面才打得到
+      const 範圍內 = 空 ? (v.dist < SETTINGS.攻擊距離 + 10 && dh > -140 && dh < 40) : (前 && v.dist < SETTINGS.攻擊距離 && Math.abs(dh) < 70);
+      if (!空) f.hitDone = true;
+      if (F.phase === 'go' && 範圍內) {
+        f.hitDone = true;
+        const dmg = (空 || f.atkKind === 'combo3') ? SETTINGS.普攻傷害 * 2 : SETTINGS.普攻傷害;
+        打中(op, dmg, f, false, 0, f.atkKind);
+      }
+    }
+    if (f.atkT <= 0) { if (f.atkKind === 'normal') f.comboT = 0.5; else f.combo = 0; }
+  } else f.comboT -= dt;
+  if (f.atkT <= 0 && !f.guard && 能動(f) && f.hp > 0) f.ang = Math.atan2(v.uz, v.ux);   // 永遠面向對手
+}
+function 物理(f, dt) {
+  if (!能動(f) || f.guard) { const k = Math.pow(0.0005, dt); f.vx *= k; f.vz *= k; }
+  if (f.dashT > 0) { f.vx = f.dashX * 720; f.vz = f.dashZ * 720; }
+  f.x += f.vx * dt; f.z += f.vz * dt;
+  f.vh -= SETTINGS.重力 * dt; f.h += f.vh * dt;
+  if (f.h <= 0) { f.h = 0; f.vh = 0; }
+  f.x = clamp(f.x, -半場, 半場); f.z = clamp(f.z, -半場, 半場);
+  f.走 += Math.hypot(f.vx, f.vz) * dt;
+}
+function 分開(a, b) {
+  const v = 看(a, b);
+  if (v.dist < 44 && Math.abs(a.h - b.h) < 70) {
+    const push = (44 - v.dist) / 2;
+    a.x -= v.ux * push; a.z -= v.uz * push; b.x += v.ux * push; b.z += v.uz * push;
+    [a, b].forEach(f => { f.x = clamp(f.x, -半場, 半場); f.z = clamp(f.z, -半場, 半場); });
+  }
+}
+function 玩家控制(p, e) {
+  if (!能動(p)) { p.guard = false; return; }
+  const 地上 = 在地上(p);
+  p.guard = !!keys.l && 地上;
+  if (p.guard) { p.vx = 0; p.vz = 0; return; }   // 防禦時不能動也不能打
+  // 鏡頭在你背後:W 往對手走、S 往後退、A D 繞著對手左右走
+  const v = 看(p, e), fx = v.ux, fz = v.uz, rx = -fz, rz = fx;
+  const 前後 = (keys.w ? 1 : 0) - (keys.s ? 1 : 0), 左右 = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+  let mx = fx * 前後 + rx * 左右, mz = fz * 前後 + rz * 左右;
+  const ml = Math.hypot(mx, mz); if (ml > 0) { mx /= ml; mz /= ml; }
+  // 衝刺:快速按兩下 A 或 D 往旁邊閃,或按 Shift
+  ['a', 'd'].forEach(k => { if (pressed[k]) { if (時間 - F.上次按[k] < 0.25) { const s = k === 'a' ? -1 : 1; 衝刺(p, rx * s, rz * s); } F.上次按[k] = 時間; } });
+  if (pressed.Shift) 衝刺(p, ml > 0 ? mx : fx, ml > 0 ? mz : fz);
+  if (p.dashT > 0) return;
+  const 慢 = p.atkT > 0 ? 0.3 : 1;
+  p.vx = mx * SETTINGS.移動速度 * 慢;
+  p.vz = mz * SETTINGS.移動速度 * 慢;
+  if (pressed[' '] && 地上) { p.vh = SETTINGS.跳躍力; 音效.跳(); }
+  if (pressed.j) { if (p.atkCD <= 0) 出招(p); else p.緩衝 = 0.2; }
+  else if (p.緩衝 > 0 && p.atkCD <= 0) { p.緩衝 = 0; 出招(p); }
+  if (pressed.k) { if (p.gauge >= SETTINGS.能量滿) 放大絕(p, e); else F.pops.push({ x: p.x, z: p.z, h: p.h + 135, text: '能量還沒滿', color: '#ccc', t: 0 }); }
+}
+function 電腦控制(e, p, dt) {
+  const D = SETTINGS.難度[難度名[選難]], ai = F.ai;
+  if (!能動(e)) { e.guard = false; return; }
+  if (e.dashT > 0) return;
+  ai.t -= dt; ai.guardT -= dt;
+  if (ai.guardT > 0) { e.guard = true; e.vx = 0; e.vz = 0; return; }
+  e.guard = false;
+  const v = 看(e, p), dist = v.dist;
+  if (ai.t <= 0) {
+    ai.t = D.反應 * (0.7 + Math.random() * 0.6);
+    const 有飛來的 = F.fx.some(fx => fx.owner === p && !fx.grp.hit &&
+      (fx.kind === 'seg' ? Math.hypot(fx.ox - e.x, fx.oz - e.z) < fx.len + 60 : Math.hypot(fx.x - e.x, fx.z - e.z) < 300));
+    if (((p.atkT > 0 && dist < 120) || 有飛來的) && Math.random() < D.防禦) {
+      ai.guardT = 0.35 + Math.random() * 0.3; ai.move = 0; ai.strafe = 0; e.guard = true; e.vx = 0; e.vz = 0; return;
+    }
+    const 範圍 = 大絕範圍[e.d.型] || 900;
+    if (e.gauge >= SETTINGS.能量滿 && dist < 範圍 && Math.random() < D.大絕機率) { 放大絕(e, p); ai.move = 0; ai.strafe = 0; return; }
+    if (!在地上(e) && dist < 110 && e.atkCD <= 0 && Math.random() < D.積極) { 出招(e); return; }
+    if (dist > 260 && Math.random() < 0.1 + 選難 * 0.08) { 衝刺(e, v.ux, v.uz); return; }
+    ai.strafe = Math.random() < 0.2 + 選難 * 0.08 ? (Math.random() < 0.5 ? -1 : 1) : 0;   // 繞著你走
+    if (dist > SETTINGS.攻擊距離 - 10) {
+      ai.move = 1;
+      if (Math.random() < 0.08 && 在地上(e)) e.vh = SETTINGS.跳躍力;
+    } else {
+      ai.move = Math.random() < 0.15 ? -1 : 0;
+      if (e.atkCD <= 0 && Math.random() < D.積極) { 出招(e); ai.strafe = 0; }
+    }
+  }
+  if (ai.move === 1 && dist < SETTINGS.攻擊距離 - 25) ai.move = 0;
+  let mx = v.ux * ai.move - v.uz * ai.strafe, mz = v.uz * ai.move + v.ux * ai.strafe;
+  const ml = Math.hypot(mx, mz); if (ml > 0) { mx /= ml; mz /= ml; }
+  const 慢 = e.atkT > 0 ? 0.3 : 1;
+  e.vx = mx * SETTINGS.移動速度 * D.速度 * 慢;
+  e.vz = mz * SETTINGS.移動速度 * D.速度 * 慢;
+}
+function 更新戰鬥(dt) {
+  const p = F.p, e = F.e;
+  鏡.震 = Math.max(0, 鏡.震 - dt * 40);
+  F.phaseT -= dt;
+  if (F.phase === 'intro') {
+    物理(p, dt); 物理(e, dt);
+    if (F.phaseT <= 0) { F.phase = 'go'; 音效.開始(); }
+    return;
+  }
+  if (F.phase === 'ko') {
+    p.guard = e.guard = false;
+    劍士計時(p, e, dt); 劍士計時(e, p, dt);
+    物理(p, dt); 物理(e, dt); 更新特效(dt);
+    if (F.phaseT <= 0) 局結束();
+    return;
+  }
+  玩家控制(p, e);
+  電腦控制(e, p, dt);
+  劍士計時(p, e, dt); 劍士計時(e, p, dt);
+  物理(p, dt); 物理(e, dt); 分開(p, e);
+  更新特效(dt);
+  if (p.hp <= 0 || e.hp <= 0) {
+    F.phase = 'ko'; F.phaseT = 2.2; F.fx = []; 音效.KO(); 鏡.震 = 16;
+    F.勝者 = p.hp <= 0 && e.hp <= 0 ? 'draw' : (e.hp <= 0 ? 'p' : 'e');
+  }
+}
+function 局結束() {
+  if (F.勝者 === 'p') F.pWins++;
+  if (F.勝者 === 'e') F.eWins++;
+  if (F.pWins >= SETTINGS.贏幾局 || F.eWins >= SETTINGS.贏幾局) { 比賽結束(F.pWins >= SETTINGS.贏幾局); return; }
+  if (F.勝者 !== 'draw') F.round++;
+  開始一局();
+}
+function 比賽結束(贏) {
+  結果 = { 贏, p: F.pWins, e: F.eWins, 新: -1 };
+  if (贏) {
+    if (解鎖數 < 解鎖上限) { 結果.新 = 解鎖數; 解鎖佇列.push(解鎖數); 解鎖數++; }
+    彩帶 = [];
+    for (let k = 0; k < 70; k++) 彩帶.push({ x: Math.random() * W, y: -Math.random() * H, v: 80 + Math.random() * 120, s: k % 3 === 0 ? '⭐' : 劍士們[選P].符, r: Math.random() * 6 });
+    音效.勝(); 換場景('victory');
+  } else { 音效.輸(); 換場景('result'); }
+}
+function 勝利動畫結束() {
+  if (解鎖佇列.length) { 動畫之後 = 'result'; 換場景('unlockAnim'); } else 換場景('result');
+}
+function 解鎖動畫結束() {
+  解鎖佇列.shift();
+  if (解鎖佇列.length) { 換場景('unlockAnim'); return; }
+  換場景(動畫之後);
+}
+
+function 畫血條(x, y, w, f, 右邊) {
+  const pct = f.hp / SETTINGS.血量;
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; 圓角(x - 3, y - 3, w + 6, 24, 8); ctx.fill();
+  ctx.fillStyle = '#5a1a1a'; ctx.fillRect(x, y, w, 18);
+  const c = pct > 0.5 ? '#7ad84a' : pct > 0.25 ? '#f2c230' : '#e8492f';
+  ctx.fillStyle = c;
+  if (右邊) ctx.fillRect(x + w * (1 - pct), y, w * pct, 18); else ctx.fillRect(x, y, w * pct, 18);
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x, y, w, 5);
+  字(f.d.符 + ' ' + f.d.名, 右邊 ? x + w : x, y + 34, 15, '#fff', 右邊 ? 'right' : 'left', 'bold', 3);
+  字(Math.ceil(f.hp) + ' / ' + SETTINGS.血量, 右邊 ? x : x + w, y + 34, 13, '#ddd', 右邊 ? 'left' : 'right', 'normal', 3);
+}
+function 畫能量(x, y, w, f, 右邊, 是玩家) {
+  const pct = f.gauge / SETTINGS.能量滿, full = pct >= 1;
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; 圓角(x - 3, y - 3, w + 6, 18, 6); ctx.fill();
+  ctx.fillStyle = '#1d2448'; ctx.fillRect(x, y, w, 12);
+  ctx.fillStyle = full ? (Math.floor(時間 * 6) % 2 ? '#ffe14a' : '#ff9f1c') : '#4aa8ff';
+  if (右邊) ctx.fillRect(x + w * (1 - pct), y, w * pct, 12); else ctx.fillRect(x, y, w * pct, 12);
+  for (let k = 1; k < SETTINGS.能量滿; k++) { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x + w * k / SETTINGS.能量滿, y, 1, 12); }
+  const label = full ? (是玩家 ? '💥 大絕招好了!按 K' : '💥 大絕招好了!') : '大絕能量 ' + f.gauge + '/' + SETTINGS.能量滿;
+  字(label, 右邊 ? x + w : x, y - 12, 13, full ? '#ffe14a' : '#cfe3ff', 右邊 ? 'right' : 'left', 'bold', 3);
+}
+function 劍士姿勢(f) {
+  if (f.hp <= 0) return 'down';
+  if (f.freeze > 0 || f.stun > 0) return 'hit';
+  if (f.ultT > 0) return 'ult';
+  if (f.guard) return 'guard';
+  if (f.atkT > 0) return 'attack';
+  if (!在地上(f)) return 'jump';
+  if (Math.hypot(f.vx, f.vz) > 20) return 'walk';
+  return 'idle';
+}
+// 3D 不能用時的備用畫法(平面)
+function 假投影(x, h, z) { const ds = 1 - z * 0.0011; return { x: W / 2 + x * ds, y: 地面 + 20 - z * 0.28 - h * ds, s: ds }; }
+function 投影(x, h, z) { return 三D.ok ? 三D.投影(x, h, z) : 假投影(x, h, z); }
+function 畫戰鬥2D() {
+  畫場地(選場, 時間);
+  [F.p, F.e].slice().sort((a, b) => b.z - a.z).forEach(f => {
+    const s = 假投影(f.x, f.h, f.z), g = 假投影(f.x, 0, f.z);
+    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(g.x, g.y + 3, 26 * g.s, 6 * g.s, 0, 0, Math.PI * 2); ctx.fill();
+    const 姿 = 劍士姿勢(f);
+    畫劍士(f.i, f.色, s.x, s.y, s.s, Math.cos(f.ang) >= 0 ? 1 : -1, 姿 === 'down' ? 'hit' : 姿, 1 - f.atkT / f.atkLen, { 冰: f.freeze > 0, 網: f.綁 > 0, 閃: f.flash > 0, 招: f.atkT > 0 ? f.atkKind : '' });
+  });
+  F.fx.forEach(fx => {
+    if (fx.t < fx.delay) return;
+    let x = fx.x, z = fx.z, h = fx.h;
+    if (fx.kind === 'seg') { x = fx.ox + fx.ux * fx.len / 2; z = fx.oz + fx.uz * fx.len / 2; h = (fx.h0 + fx.h1) / 2; }
+    const s = 假投影(x, h, z); 字(fx.draw === 'rock' ? '🪨' : fx.sym, s.x, s.y, 48 * s.s);
+  });
+}
+function 畫戰鬥() {
+  const p = F.p, e = F.e;
+  if (三D.ok) 三D.畫(); else 畫戰鬥2D();
+  // 落石警告、衝刺線、傷害數字(貼在 3D 位置上)
+  F.fx.forEach(fx => { if (fx.落 && fx.h > 200) { const s = 投影(fx.x, 170, fx.z); if (s) 字('⚠️', s.x, s.y, 30); } });
+  [p, e].forEach(f => {
+    if (f.dashT <= 0) return;
+    const s = 投影(f.x, 60, f.z); if (!s) return;
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3;
+    for (let k = 0; k < 5; k++) { const y = s.y - 40 + k * 20, x = s.x + (k % 2 ? -10 : 10); ctx.beginPath(); ctx.moveTo(x - 40, y); ctx.lineTo(x + 40, y); ctx.stroke(); }
+  });
+  F.pops.forEach(o => { const s = 投影(o.x, o.h + o.t * 60, o.z); if (s) 字(o.text, s.x, s.y, o.big ? 30 : 20, o.color, 'center', 'bold', 4); });
+  // 上方血條
+  畫血條(20, 14, 320, p, false);
+  畫血條(W - 340, 14, 320, e, true);
+  ctx.fillStyle = 'rgba(0,0,0,.6)'; 圓角(W / 2 - 50, 8, 100, 52, 10); ctx.fill();
+  字('第 ' + F.round + ' 局', W / 2, 24, 15, '#fff');
+  const 星 = (n) => '⭐'.repeat(n) + '☆'.repeat(SETTINGS.贏幾局 - n);
+  字(星(F.pWins), W / 2 - 24, 46, 13, '#ffe14a'); 字(星(F.eWins), W / 2 + 24, 46, 13, '#ffe14a');
+  // 下方能量條
+  畫能量(20, 450, 250, p, false, true);
+  畫能量(W - 270, 450, 250, e, true, false);
+  // 大絕招名字
+  if (F.banner) {
+    const b = F.banner, s = Math.min(1, b.t * 6);
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 175, W, 70 * s);
+    字(b.text, W / 2 - (1 - s) * 300, 210, 40, b.color === '#ffffff' ? '#ffe14a' : b.color, 'center', 'bold', 6);
+  }
+  if (F.phase === 'intro') 字(F.phaseT > 0.6 ? '第 ' + F.round + ' 局' : '開始!', W / 2, 200, 64, '#fff', 'center', 'bold', 8);
+  if (F.phase === 'ko') {
+    const t = F.勝者 === 'p' ? '你贏了這局!' : F.勝者 === 'e' ? '這局輸了…' : '平手!再一次!';
+    字('KO!', W / 2, 180, 80, '#ffd23a', 'center', 'bold', 8);
+    字(t, W / 2, 250, 32, '#fff', 'center', 'bold', 6);
+  }
+  提示(用過鍵盤 ? 'W 往前 · S 往後 · A D 繞圈(按兩下閃) · 空白 跳 · J 攻擊 · K 大絕 · L 防禦' : '👆 鍵盤沒反應?先點一下畫面,或用畫面下面的按鈕玩');
+}
+
+// ===================== 3D 引擎(用 three.js) =====================
+const 三D = (() => {
+  const api = { ok: false, 準備比賽() {}, 換局() {}, 畫() {}, 畫勝利() {}, 投影: () => null, 顯示() {} };
+  const T = window.THREE;
+  const gl = document.getElementById('gl');
+  if (!T || !gl || !gl.getContext) return api;
+  let renderer;
+  try { renderer = new T.WebGLRenderer({ canvas: gl, antialias: true }); } catch (e) { return api; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(W, H, false);
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+  const S = 1 / 40;                       // 40 像素 = 1 格
+  const 場景 = new T.Scene();
+  const cam = new T.PerspectiveCamera(55, W / H, 0.1, 500);
+  const hemi = new T.HemisphereLight(0xffffff, 0x444444, 0.6); 場景.add(hemi);
+  const sun = new T.DirectionalLight(0xffffff, 0.8);
+  sun.position.set(6, 14, 8); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 50 });
+  場景.add(sun); 場景.add(sun.target);
+  const 特效根 = new T.Group(); 場景.add(特效根);
+  let 場地 = null, 場地號 = -1, 模P = null, 模E = null;
+  const 鏡位 = new T.Vector3(0, 8, 16), 鏡看 = new T.Vector3(0, 1.5, 0);
+
+  // ---------- 小工具 ----------
+  function 畫布貼圖(w, h, draw, rx, ry) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    draw(c.getContext('2d'), w, h);
+    const t = new T.CanvasTexture(c);
+    if (rx) { t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(rx, ry || rx); }
+    t.anisotropy = 4;
+    return t;
+  }
+  const 符快取 = {};
+  function 符貼圖(s) {
+    if (!符快取[s]) 符快取[s] = 畫布貼圖(128, 128, g => {
+      g.font = '96px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, 64, 70);
+    });
+    return 符快取[s];
+  }
+  function 符精靈(s, size) {
+    const m = new T.Sprite(new T.SpriteMaterial({ map: 符貼圖(s), transparent: true, depthWrite: false }));
+    m.scale.set(size, size, 1); return m;
+  }
+  const 圓點 = 畫布貼圖(32, 32, g => { const r = g.createRadialGradient(16, 16, 0, 16, 16, 16); r.addColorStop(0, '#fff'); r.addColorStop(0.5, 'rgba(255,255,255,.8)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 32, 32); });
+  const 光材 = (c, a) => { const m = new T.MeshBasicMaterial({ color: c, transparent: true, opacity: a, blending: T.AdditiveBlending, depthWrite: false, side: T.DoubleSide }); m.userData.a = a; return m; };
+  const 漸層 = (top, bottom) => 畫布貼圖(4, 256, (g, w, h) => { const r = g.createLinearGradient(0, 0, 0, h); r.addColorStop(0, top); r.addColorStop(1, bottom); g.fillStyle = r; g.fillRect(0, 0, w, h); });
+  const 外框材 = new T.MeshBasicMaterial({ color: 0x15121d, side: T.BackSide });
+  // 放一個零件(有黑色描邊,像卡通)
+  function 件(geo, mat, x, y, z, parent, 框) {
+    const m = new T.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true;
+    if (框 !== false) {
+      geo.computeBoundingBox(); const b = geo.boundingBox;
+      const sx = b.max.x - b.min.x, sy = b.max.y - b.min.y, sz = b.max.z - b.min.z;
+      const o = new T.Mesh(geo, 外框材); o.scale.set((sx + 0.07) / sx, (sy + 0.07) / sy, (sz + 0.07) / sz); m.add(o);
+    }
+    parent.add(m); return m;
+  }
+  const 盒 = (w, h, d) => new T.BoxGeometry(w, h, d);
+
+  // ---------- 劍士積木人 ----------
+  function 做劍士(i, 色) {
+    const d = 劍士們[i], 休 = d.造型 === '休閒';
+    const 主色 = 色 ? 變色[色] : (休 ? d.外套 : d.衣);
+    const mats = [];
+    const M = (c, map) => { const m = new T.MeshToonMaterial({ color: map ? 0xffffff : c, map: map || null }); mats.push(m); return m; };
+    const root = new T.Group(), body = new T.Group(); root.add(body);
+    const 皮 = M(d.皮 || 0xf6d2b0), 髮 = M(d.髮), 黑 = M(0x1f1b28);
+    let 外衣材;
+    if (d.格子 && !色) 外衣材 = M(0, 畫布貼圖(64, 64, (g) => { g.fillStyle = '#dcdde3'; g.fillRect(0, 0, 64, 64); g.fillStyle = 'rgba(130,135,150,.5)'; for (let k = 0; k < 64; k += 12) { g.fillRect(k, 0, 4, 64); g.fillRect(0, k, 64, 4); } }));
+    else if (i === 12 && !色) 外衣材 = M(0, 畫布貼圖(8, 64, (g) => { ['#ff5a5a', '#ffa53a', '#ffe14a', '#5ad16b', '#4aa8ff', '#9b6bff', '#ffffff', '#ffffff'].forEach((c, k) => { g.fillStyle = c; g.fillRect(0, k * 8, 8, 8); }); }));
+    else 外衣材 = M(主色);
+    // 腿
+    const 腿 = (sx) => {
+      const g = new T.Group(); g.position.set(sx, 1.15, 0); body.add(g);
+      if (休) { 件(new T.CylinderGeometry(0.17, 0.27, 1.1, 10), M(d.褲 || 0x24395a), 0, -0.55, 0, g); 件(盒(0.32, 0.06, 0.5), M(0xf2e4a6), 0, -1.12, 0.05, g); }
+      else if (d.裙) { 件(盒(0.24, 1.05, 0.26), M(0xe8d4d4), 0, -0.52, 0, g, false); 件(盒(0.3, 0.06, 0.46), M(0xf2d8d0), 0, -1.1, 0.05, g); }
+      else { 件(盒(0.3, 1.05, 0.32), M(0x2b2633), 0, -0.52, 0, g); 件(盒(0.32, 0.12, 0.44), 黑, 0, -1.08, 0.05, g); }
+      return g;
+    };
+    const legL = 腿(0.2), legR = 腿(-0.2);
+    // 身體
+    if (休) {
+      件(盒(0.84, 0.98, 0.46), M(主色 === d.外套 ? d.衣 : d.衣), 0, 1.66, 0, body);
+      件(盒(0.92, 1.0, 0.4), 外衣材, 0, 1.66, -0.05, body, false);
+      件(盒(0.26, 1.0, 0.06), 外衣材, 0.31, 1.66, 0.24, body, false);
+      件(盒(0.26, 1.0, 0.06), 外衣材, -0.31, 1.66, 0.24, body, false);
+      if (d.腰帶 === '黑') { 件(盒(0.9, 0.14, 0.5), M(0x1a1a1e), 0, 1.22, 0, body, false); 件(盒(0.16, 0.5, 0.06), M(0x9a1a2a), 0.3, 0.98, 0.26, body, false); }
+      else 件(盒(0.86, 0.07, 0.48), M(0xf4f4f4), 0, 1.2, 0, body, false);
+      if (d.領) [-0.14, 0.14].forEach(x => { const c = 件(盒(0.2, 0.12, 0.04), M(0xd03060), x, 2.12, 0.25, body, false); c.rotation.z = x > 0 ? -0.4 : 0.4; });
+    } else if (d.裙) {
+      件(盒(0.82, 1.0, 0.46), 外衣材, 0, 1.68, 0, body);
+      件(盒(0.32, 1.0, 0.04), M(0xfbf6f4), 0, 1.68, 0.24, body, false);
+      const 裙貼 = 畫布貼圖(128, 16, (c, w) => { c.fillStyle = d.衣; c.fillRect(0, 0, w, 16); c.fillStyle = '#fbf6f4'; c.fillRect(0, 0, 14, 16); c.fillRect(w - 14, 0, 14, 16); c.fillStyle = '#d0303a'; c.fillRect(14, 0, 3, 16); c.fillRect(w - 17, 0, 3, 16); });
+      件(new T.CylinderGeometry(0.42, 0.64, 1.15, 16), M(0, 裙貼), 0, 0.62, 0, body);
+      件(盒(0.86, 0.06, 0.5), M(0xd0303a), 0, 1.24, 0, body, false);
+    } else {
+      件(盒(0.88, 1.02, 0.5), 外衣材, 0, 1.68, 0, body);
+      件(盒(1.0, 0.36, 0.58), 外衣材, 0, 1.12, 0, body);
+      件(盒(0.9, 0.08, 0.52), M(0xf4ecdd), 0, 1.3, 0, body, false);
+      件(盒(0.22, 0.32, 0.02), 黑, 0, 2.02, 0.26, body, false);
+    }
+    // 頭
+    const head = new T.Group(); head.position.y = 2.2; body.add(head);
+    件(盒(0.74, 0.72, 0.68), 皮, 0, 0.38, 0, head);
+    const 眼 = (x, 眨) => {
+      if (眨) { 件(盒(0.16, 0.04, 0.02), 黑, x, 0.42, 0.345, head, false); return; }
+      if (休 || d.眼色) { 件(盒(0.16, 0.18, 0.02), M(0xffffff), x, 0.42, 0.345, head, false); 件(盒(0.1, 0.13, 0.02), M(d.眼色 || 0x2f6fc4), x, 0.41, 0.355, head, false); }
+      else 件(盒(0.09, 0.15, 0.02), 黑, x, 0.42, 0.345, head, false);
+    };
+    眼(-0.15, d.眨眼); 眼(0.15, false);
+    if (d.口罩) 件(盒(0.5, 0.24, 0.05), M(0xfbfbfd), 0, 0.2, 0.34, head, false);
+    else if (休) 件(盒(0.1, 0.04, 0.02), M(0xe58f95), 0, 0.2, 0.345, head, false);
+    if (d.虎牙) [-0.05, 0.05].forEach(x => 件(盒(0.035, 0.07, 0.02), M(0xffffff), x, 0.15, 0.35, head, false));
+    if (d.項圈) 件(盒(0.36, 0.06, 0.32), M(0xd0505a), 0, -0.02, 0, head, false);
+    if (d.臉紋) [-0.15, 0.15].forEach(x => 件(盒(0.05, 0.12, 0.02), M(0xd0304a), x, 0.27, 0.345, head, false));
+    if (d.舌) 件(盒(0.1, 0.06, 0.02), M(0xe8607a), 0, 0.18, 0.345, head, false);
+    if (d.花) { const 花 = 符精靈('🌺', 0.55); 花.position.set(-0.42, 0.72, 0.2); head.add(花); }
+    if (d.耳) [-0.24, 0.24].forEach(x => { 件(new T.ConeGeometry(0.15, 0.38, 4), M(d.衣), x, 1.05, 0, head); 件(new T.ConeGeometry(0.08, 0.22, 4), M(0xfff6ea), x, 1.0, 0.06, head, false); });
+    // 頭髮
+    件(盒(0.8, 0.26, 0.74), 髮, 0, 0.8, 0, head);
+    件(盒(0.8, 0.5, 0.18), 髮, 0, 0.55, -0.3, head, false);
+    if (休) { [-0.26, -0.08, 0.1, 0.27].forEach((x, k) => { const b = 件(盒(0.2, 0.22, 0.08), 髮, x, 0.62 - (k % 2) * 0.04, 0.34, head, false); b.rotation.z = (k - 1.5) * 0.12; }); }
+    else 件(盒(0.78, 0.14, 0.08), 髮, 0, 0.67, 0.33, head, false);
+    if (d.髮型 === 0) [[-0.25, 0.2], [0, 0.05], [0.25, 0.2], [-0.12, -0.2], [0.14, -0.22]].forEach(([x, z], k) => { const c = 件(new T.ConeGeometry(0.14, 0.45, 5), 髮, x, 1.1, z, head, false); c.rotation.set(-z * 1.5, 0, -x * 1.5); });
+    if (d.髮型 === 1) 件(盒(0.8, 1.1, 0.2), 髮, 0, 0.2, -0.32, head);
+    if (d.髮型 === 3) 件(new T.SphereGeometry(0.22, 12, 8), 髮, 0, 1.02, -0.18, head);
+    if (d.髮型 === 4) { const 長 = d.裙 ? 1.5 : 0.75; const t = 件(盒(d.裙 ? 0.3 : 0.18, 長, d.裙 ? 0.24 : 0.18), 髮, 0, 0.9 - 長 / 2, -0.5, head); t.rotation.x = 0.35; if (d.裙) 件(new T.SphereGeometry(0.2, 10, 8), 髮, 0, 1.0, -0.32, head); }
+    if (d.珍珠) for (let k = 0; k < 9; k++) 件(new T.SphereGeometry(0.045, 8, 6), M(0xffffff), -0.36 + k * 0.09, 0.72 + Math.abs(k - 4) * 0.02, 0.37, head, false);
+    if (!休 && !d.鬼 && !d.無頭帶) { // 頭帶
+      const 帶 = M(主色 === '#ffffff' ? '#ff5a5a' : '#f4ecdd');
+      件(盒(0.78, 0.08, 0.72), 帶, 0, 0.7, 0, head, false);
+      [-0.06, 0.06].forEach(x => { const b = 件(盒(0.07, 0.34, 0.03), 帶, x, 0.55, -0.4, head, false); b.rotation.x = 0.5; });
+    }
+    // 手臂(可以轉的關節)
+    const 手 = (sx, 拿劍) => {
+      const g = new T.Group(); g.position.set(sx, 2.06, 0); body.add(g);
+      const 袖 = 休 ? (d.格子 ? M(d.衣) : 外衣材) : 外衣材;
+      件(盒(0.24, 0.84, 0.26), 袖, 0, -0.42, 0, g);
+      if (d.格子) 件(盒(0.29, 0.34, 0.31), 外衣材, 0, -0.14, 0, g, false);
+      件(盒(0.2, 0.2, 0.2), 休 && !拿劍 && d.手套 !== false ? 黑 : 皮, 0, -0.9, 0, g);
+      return g;
+    };
+    const armL = 手(0.56, false), armR = 手(-0.56, true);
+    // 劍(或金扇子)
+    const sword = new T.Group(); sword.position.set(0, -0.9, 0); armR.add(sword);
+    const 金 = M(0xe0a52a);
+    if (d.武器 === '扇') {
+      const 扇 = (parent) => {
+        件(盒(0.08, 0.08, 0.3), 金, 0, 0, 0.05, parent, false);
+        const 白 = M(0xffffff);
+        for (let k = 0; k < 7; k++) { const rib = new T.Group(); rib.position.z = 0.18; rib.rotation.x = -0.65 + k * 0.22; parent.add(rib); 件(盒(0.03, 0.1, 0.75), 白, 0, 0, 0.4, rib); }
+        件(盒(0.05, 0.22, 0.05), M(0xc8e04a), 0, -0.14, -0.05, parent, false);
+      };
+      扇(sword);
+      const 左扇 = new T.Group(); 左扇.position.set(0, -0.9, 0); 左扇.rotation.x = -0.4; armL.add(左扇); 扇(左扇);
+    } else {
+    件(盒(0.07, 0.07, 0.34), 休 || d.金柄 ? 金 : M(0x3a2a1a), 0, 0, 0.02, sword, false);
+    件(盒(0.24, 0.24, 0.05), 金, 0, 0, 0.21, sword, false);
+    const 刃材 = new T.MeshToonMaterial({ color: d.劍刃 || 0xe4ecf5, emissive: 0x223344 }); mats.push(刃材);
+    件(盒(0.05, 0.13, 1.5), 刃材, 0, 0, 0.98, sword);
+    const 色帶 = new T.MeshBasicMaterial({ color: d.衣 }); 件(盒(0.055, 0.04, 1.3), 色帶, 0, 0, 0.98, sword, false);
+    }
+    // 狐狸尾巴
+    let 尾 = null;
+    if (d.尾) {
+      尾 = new T.Group(); 尾.position.set(0, 1.25, -0.3); body.add(尾);
+      const n = d.尾, 中 = (n - 1) / 2;
+      for (let k = 0; k < n; k++) { const t = new T.Group(); t.rotation.set(-0.9 + Math.abs(k - 中) * 0.1, 0, (k - 中) * 0.45); 尾.add(t); const m = 件(new T.SphereGeometry(0.22, 10, 8), M(d.衣), 0, 0.5, -0.1, t); m.scale.set(1, 2.4, 1); 件(new T.SphereGeometry(0.17, 8, 6), M(0xfff6ea), 0, 1.05, -0.12, t, false); }
+    }
+    // 蜘蛛絲網
+    const 網 = 符精靈('🕸️', 3.4); 網.position.y = 1.6; 網.visible = false; root.add(網);
+    // 防禦盾、冰塊
+    const shield = new T.Group();
+    shield.add(new T.Mesh(new T.CircleGeometry(1.15, 28), 光材(0x78c8ff, 0.3)));
+    shield.add(new T.Mesh(new T.RingGeometry(1.08, 1.18, 28), 光材(0xbfe8ff, 0.8)));
+    shield.position.set(0, 1.6, 0.85); shield.visible = false; root.add(shield);
+    const ice = new T.Mesh(盒(1.5, 3.3, 1.3), new T.MeshBasicMaterial({ color: 0xa0e1ff, transparent: true, opacity: 0.45, depthWrite: false }));
+    ice.position.y = 1.65; ice.visible = false; root.add(ice);
+    root.traverse(o => { if (o.isMesh && o.material !== 外框材) o.castShadow = true; });
+    return { root, body, legL, legR, armL, armR, sword, head, shield, ice, 網, 尾, mats, 亮: false };
+  }
+  function 擺(m, 姿, prog, t, 招, 走) {
+    const b = m.body, A = (g, x, z) => g.rotation.set(x, 0, z || 0);
+    b.rotation.set(0, 0, 0); b.position.set(0, Math.sin(t * 3) * 0.03, 0);
+    A(m.legL, 0); A(m.legR, 0); A(m.armL, -0.25, 0.12); A(m.armR, -0.35, -0.1); m.sword.rotation.set(-0.55, 0, 0);
+    const s = Math.sin(走 * 0.045);
+    switch (姿) {
+      case 'walk': A(m.legL, s * 0.7); A(m.legR, -s * 0.7); A(m.armL, -0.25 - s * 0.5, 0.12); b.position.y = Math.abs(s) * 0.06; break;
+      case 'attack': {
+        const e = 1 - Math.pow(1 - clamp(prog, 0, 1), 2.2);
+        if (招 === 'combo3') { b.rotation.y = -e * Math.PI * 2; A(m.armR, -0.2, -1.45); m.sword.rotation.set(0, 0, 0); A(m.armL, -0.2, 1.2); }
+        else {
+          A(m.armR, -2.9 + e * 2.7, -0.15); m.sword.rotation.set(-0.3, 0, 0);
+          A(m.armL, -0.6 + e * 0.3, 0.2); A(m.legR, 0.35); A(m.legL, -0.25);
+          b.rotation.x = 招 === 'air' ? e * 0.5 : e * 0.18;
+        }
+        break;
+      }
+      case 'guard': A(m.armR, -1.25, 0.55); m.sword.rotation.set(0, 0, 0); A(m.armL, -1.1, -0.4); break;
+      case 'hit': b.rotation.x = -0.35; A(m.armL, 0.5, 0.5); A(m.armR, 0.5, -0.5); break;
+      case 'jump': A(m.legL, -1.0); A(m.legR, -0.3); A(m.armL, -2.2, 0.4); break;
+      case 'win': case 'ult': A(m.armR, -3.0, -0.15); m.sword.rotation.set(1.57, 0, 0); A(m.armL, -0.3, 0.6); break;
+      case 'down': b.rotation.x = -1.45; b.position.y = 0.35; A(m.armL, -2.8, 0.3); A(m.armR, -2.8, -0.3); break;
+    }
+  }
+  function 同步劍士(m, f) {
+    m.root.position.set(f.x * S, f.h * S, f.z * S);
+    m.root.rotation.y = Math.PI / 2 - f.ang;
+    擺(m, 劍士姿勢(f), 1 - f.atkT / f.atkLen, 時間, f.atkKind, f.走);
+    if (f.dashT > 0) m.body.rotation.x = 0.35;
+    m.shield.visible = f.guard; m.ice.visible = f.freeze > 0 && !(f.綁 > 0); m.網.visible = f.綁 > 0;
+    if (m.尾) m.尾.rotation.y = Math.sin(時間 * 3) * 0.25;
+    const 亮 = f.flash > 0;
+    if (亮 !== m.亮) { m.亮 = 亮; m.mats.forEach(x => x.emissive.setHex(亮 ? 0x777777 : 0)); }
+  }
+
+  // ---------- 粒子(落葉、雪、花瓣、火星) ----------
+  function 粒子(n, colors, size, area, 動) {
+    const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), seed = new Float32Array(n);
+    const c = new T.Color();
+    for (let k = 0; k < n; k++) {
+      pos[k * 3] = area[0] + Math.random() * (area[1] - area[0]);
+      pos[k * 3 + 1] = area[2] + Math.random() * (area[3] - area[2]);
+      pos[k * 3 + 2] = area[4] + Math.random() * (area[5] - area[4]);
+      c.set(colors[k % colors.length]); col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
+      seed[k] = Math.random() * 10;
+    }
+    const geo = new T.BufferGeometry();
+    geo.setAttribute('position', new T.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new T.BufferAttribute(col, 3));
+    const pts = new T.Points(geo, new T.PointsMaterial({ size, vertexColors: true, map: 圓點, transparent: true, depthWrite: false }));
+    if (動) pts.userData.動 = (dt, t) => {
+      for (let k = 0; k < n; k++) {
+        動(pos, k * 3, dt, t, seed[k]);
+        if (pos[k * 3 + 1] < area[2]) pos[k * 3 + 1] = area[3];
+        if (pos[k * 3 + 1] > area[3]) pos[k * 3 + 1] = area[2];
+      }
+      geo.attributes.position.needsUpdate = true;
+    };
+    return pts;
+  }
+  const 落下 = (速, 飄) => (p, i, dt, t, s) => { p[i + 1] -= 速 * dt; p[i] += Math.sin(t * 1.3 + s) * 飄 * dt; p[i + 2] += Math.cos(t + s) * 飄 * 0.5 * dt; };
+  const 環 = (n, r0, r1, fn) => { for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, r = r0 + Math.random() * (r1 - r0); fn(Math.cos(a) * r, Math.sin(a) * r, k, a); } };
+  function 地板(g, size, tex, 色) {
+    const m = new T.Mesh(new T.PlaneGeometry(size, size), new T.MeshToonMaterial({ color: 色 || 0xffffff, map: tex }));
+    m.rotation.x = -Math.PI / 2; m.receiveShadow = true; g.add(m); return m;
+  }
+  function 場地邊(g, 色) {   // 地上的方框,告訴你場地多大
+    const mat = new T.MeshBasicMaterial({ color: 色, transparent: true, opacity: 0.55 }), L = 半場 * S * 2 + 1.2, e = 半場 * S + 0.6;
+    [[0, e, L, 0.12], [0, -e, L, 0.12], [e, 0, 0.12, L], [-e, 0, 0.12, L]].forEach(([x, z, w, d]) => { const m = new T.Mesh(new T.PlaneGeometry(w, d), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.02, z); g.add(m); });
+  }
+
+  // ---------- 六個 3D 場地 ----------
+  function 做場地(i) {
+    const g = new T.Group();
+    const 設定 = { bg: ['#000', '#000'], fog: null, hemi: [0xffffff, 0x444444, 0.6], dir: [0xffffff, 0.8], 鏡限: 13 };
+    if (i === 0) { // 夜晚道場
+      Object.assign(設定, { bg: ['#160a04', '#4a2410'], fog: [0x2a1206, 16, 45], hemi: [0xffd8a8, 0x5a3010, 0.75], dir: [0xffc890, 0.7] });
+      地板(g, 34, 畫布貼圖(256, 256, (c, w, h) => { for (let k = 0; k < 8; k++) { c.fillStyle = ['#a8662f', '#9a5e2c', '#b0703a', '#94582a'][k % 4]; c.fillRect(0, k * 32, w, 32); c.fillStyle = 'rgba(40,18,6,.45)'; c.fillRect(0, k * 32, w, 2); c.fillRect((k * 97) % w, k * 32, 2, 32); } }, 5));
+      const 窗 = 畫布貼圖(256, 128, (c, w, h) => { c.fillStyle = '#2a1408'; c.fillRect(0, 0, w, h); c.fillStyle = '#ffba60'; c.fillRect(12, 14, 104, 70); c.fillRect(140, 14, 104, 70); c.fillStyle = '#2a1408'; for (let x = 12; x < w; x += 26) c.fillRect(x, 14, 3, 70); c.fillRect(0, 46, w, 3); c.fillStyle = '#4a2410'; c.fillRect(0, 96, w, 32); }, 4, 1);
+      const 牆 = new T.MeshBasicMaterial({ map: 窗 });
+      [[0, -16, 0], [0, 16, Math.PI], [-16, 0, Math.PI / 2], [16, 0, -Math.PI / 2]].forEach(([x, z, r]) => { const m = new T.Mesh(new T.PlaneGeometry(32, 8), 牆); m.position.set(x, 4, z); m.rotation.y = r; g.add(m); });
+      const 木 = new T.MeshToonMaterial({ color: 0x331707 });
+      for (let k = -2; k <= 2; k++) [[k * 6.4, -15.6], [k * 6.4, 15.6], [-15.6, k * 6.4], [15.6, k * 6.4]].forEach(([x, z]) => { const p = new T.Mesh(new T.CylinderGeometry(0.4, 0.4, 9, 10), 木); p.position.set(x, 4.5, z); g.add(p); });
+      const 欄 = new T.MeshToonMaterial({ color: 0x5a2e12 });
+      [[0, -11, 22, 0.15], [0, 11, 22, 0.15], [-11, 0, 0.15, 22], [11, 0, 0.15, 22]].forEach(([x, z, w, d]) => { const m = new T.Mesh(盒(w, 0.15, d), 欄); m.position.set(x, 1.1, z); m.castShadow = true; g.add(m); });
+      for (let k = -10; k <= 10; k += 2.5) [[k, -11], [k, 11], [-11, k], [11, k]].forEach(([x, z]) => { const m = new T.Mesh(盒(0.15, 1.1, 0.15), 欄); m.position.set(x, 0.55, z); g.add(m); });
+      const 燈材 = new T.MeshBasicMaterial({ color: 0xe8402a });
+      [[-9, -14], [9, -14], [-14, 9], [14, -9], [-9, 14], [9, 14]].forEach(([x, z], k) => {
+        const l = new T.Mesh(new T.SphereGeometry(0.7, 16, 12), 燈材); l.scale.y = 1.3; l.position.set(x, 5.5, z); g.add(l);
+        const gl2 = new T.Sprite(new T.SpriteMaterial({ map: 圓點, color: 0xff8a40, transparent: true, opacity: 0.5, depthWrite: false, blending: T.AdditiveBlending })); gl2.scale.set(5, 5, 1); gl2.position.copy(l.position); g.add(gl2);
+        if (k < 2) { const pl = new T.PointLight(0xff9a50, 0.8, 22); pl.position.set(x, 5, z); g.add(pl); }
+      });
+      g.add(粒子(90, ['#ffaa46', '#ffcf70'], 0.18, [-14, 14, 0, 9, -14, 14], (p, k, dt, t, s) => { p[k + 1] += (0.6 + s * 0.08) * dt; p[k] += Math.sin(t + s) * 0.3 * dt; }));
+      場地邊(g, 0xffcf70);
+    } else if (i === 1) { // 竹林
+      Object.assign(設定, { bg: ['#173d25', '#78b866'], fog: [0x5f9a5a, 12, 40], hemi: [0xd8ffd0, 0x3a5a22, 0.75], dir: [0xfff4d0, 0.75], 鏡限: 13 });
+      地板(g, 80, 畫布貼圖(128, 128, (c, w, h) => { c.fillStyle = '#5a7a3a'; c.fillRect(0, 0, w, h); for (let k = 0; k < 300; k++) { c.fillStyle = k % 2 ? 'rgba(60,90,30,.6)' : 'rgba(140,160,80,.4)'; c.fillRect(Math.random() * w, Math.random() * h, 3, 2); } }, 12));
+      const 竹貼 = 畫布貼圖(16, 128, (c, w, h) => { c.fillStyle = '#3f8a3a'; c.fillRect(0, 0, w, h); c.fillStyle = '#5aa84a'; c.fillRect(3, 0, 3, h); c.fillStyle = '#2a6427'; for (let y = 20; y < h; y += 40) c.fillRect(0, y, w, 4); }, 1, 4);
+      const 竹材 = new T.MeshToonMaterial({ map: 竹貼 });
+      const 竹 = new T.CylinderGeometry(0.18, 0.2, 18, 8);
+      環(170, 13.5, 34, (x, z) => { const m = new T.Mesh(竹, 竹材); m.position.set(x, 9, z); m.rotation.z = (Math.random() - 0.5) * 0.08; m.castShadow = true; g.add(m); });
+      g.add(粒子(140, ['#9ee07a', '#c8ec8a', '#6fbf5a'], 0.28, [-15, 15, 0, 12, -15, 15], 落下(0.9, 0.8)));
+      場地邊(g, 0xe8ffc0);
+    } else if (i === 2) { // 雪山
+      Object.assign(設定, { bg: ['#7fa9d6', '#e4f0fb'], fog: [0xdbe7f4, 25, 110], hemi: [0xffffff, 0x9ab4d0, 0.85], dir: [0xffffff, 0.75], 鏡限: 14 });
+      地板(g, 200, 畫布貼圖(128, 128, (c, w, h) => { c.fillStyle = '#f7fbff'; c.fillRect(0, 0, w, h); for (let k = 0; k < 40; k++) { c.fillStyle = 'rgba(180,205,230,.4)'; c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 12, 3, 0, 0, 7); c.fill(); } }, 25));
+      const 山材 = new T.MeshToonMaterial({ color: 0xb9cde4 }), 雪材 = new T.MeshToonMaterial({ color: 0xffffff });
+      環(14, 45, 75, (x, z) => { const r = 10 + Math.random() * 12, h = 14 + Math.random() * 20; const m = new T.Mesh(new T.ConeGeometry(r, h, 7), 山材); m.position.set(x, h / 2 - 1, z); g.add(m); const c = new T.Mesh(new T.ConeGeometry(r * 0.36, h * 0.36, 7), 雪材); c.position.set(x, h - 1 - h * 0.18 + 0.05, z); g.add(c); });
+      const 松 = new T.MeshToonMaterial({ color: 0x2f5a3a });
+      環(26, 14, 32, (x, z) => { const s = 0.8 + Math.random() * 0.8; [0, 1, 2].forEach(k => { const m = new T.Mesh(new T.ConeGeometry(1.4 * s - k * 0.35 * s, 2 * s, 8), k === 2 ? 雪材 : 松); m.position.set(x, (1 + k * 1.1) * s, z); m.castShadow = true; g.add(m); }); });
+      g.add(粒子(400, ['#ffffff'], 0.16, [-20, 20, 0, 14, -20, 20], 落下(1.3, 0.6)));
+      場地邊(g, 0x7fa9d6);
+    } else if (i === 3) { // 櫻花樹下
+      Object.assign(設定, { bg: ['#ffb3cf', '#fff0e6'], fog: [0xffd6e4, 18, 60], hemi: [0xfff0f4, 0x6f9a5e, 0.8], dir: [0xfff4e0, 0.75] });
+      地板(g, 90, 畫布貼圖(128, 128, (c, w, h) => { c.fillStyle = '#8fc47a'; c.fillRect(0, 0, w, h); for (let k = 0; k < 200; k++) { c.fillStyle = k % 6 ? 'rgba(90,140,70,.5)' : '#ffc4dc'; c.fillRect(Math.random() * w, Math.random() * h, 3, 2); } }, 14));
+      const 幹 = new T.MeshToonMaterial({ color: 0x6b3a2a }), 花 = [0xffc4dc, 0xff9cc2, 0xffd6e6].map(c => new T.MeshToonMaterial({ color: c }));
+      環(16, 12.5, 24, (x, z) => { const t = new T.Mesh(new T.CylinderGeometry(0.25, 0.4, 4.5, 8), 幹); t.position.set(x, 2.25, z); t.castShadow = true; g.add(t); for (let k = 0; k < 6; k++) { const b = new T.Mesh(new T.IcosahedronGeometry(1.2 + Math.random() * 0.7, 0), 花[k % 3]); b.position.set(x + (Math.random() - 0.5) * 2.6, 4.8 + Math.random() * 1.6, z + (Math.random() - 0.5) * 2.6); b.castShadow = true; g.add(b); } });
+      g.add(粒子(260, ['#ff8fbd', '#ffc4dc', '#ffffff'], 0.22, [-16, 16, 0, 9, -16, 16], 落下(0.8, 1.2)));
+      場地邊(g, 0xffffff);
+    } else if (i === 4) { // 城市屋頂
+      Object.assign(設定, { bg: ['#0b1030', '#3a2a6a'], fog: [0x1a1640, 30, 120], hemi: [0x8a9aff, 0x302040, 0.65], dir: [0xd8e0ff, 0.6], 鏡限: 13 });
+      地板(g, 24, 畫布貼圖(128, 128, (c, w, h) => { c.fillStyle = '#55566a'; c.fillRect(0, 0, w, h); c.fillStyle = 'rgba(30,30,40,.35)'; for (let k = 0; k < w; k += 32) { c.fillRect(k, 0, 2, h); c.fillRect(0, k, w, 2); } }, 6));
+      const 邊材 = new T.MeshToonMaterial({ color: 0x3a3a4a });
+      [[0, -12.2, 24.8, 0.4], [0, 12.2, 24.8, 0.4], [-12.2, 0, 0.4, 24.8], [12.2, 0, 0.4, 24.8]].forEach(([x, z, w, d]) => { const m = new T.Mesh(盒(w, 1, d), 邊材); m.position.set(x, 0.1, z); g.add(m); });
+      const 鐵 = new T.MeshToonMaterial({ color: 0x8a8aa0 });
+      [[0, -11.5, 23, 0.1], [0, 11.5, 23, 0.1], [-11.5, 0, 0.1, 23], [11.5, 0, 0.1, 23]].forEach(([x, z, w, d]) => { const m = new T.Mesh(盒(w, 0.1, d), 鐵); m.position.set(x, 1.2, z); g.add(m); });
+      for (let k = -11; k <= 11; k += 1.6) [[k, -11.5], [k, 11.5], [-11.5, k], [11.5, k]].forEach(([x, z]) => { const m = new T.Mesh(盒(0.08, 1.2, 0.08), 鐵); m.position.set(x, 0.6, z); g.add(m); });
+      const 樓底 = new T.Mesh(new T.CylinderGeometry(12.3, 12.3, 1, 4), 邊材); // 防止看到下面是空的
+      樓底.rotation.y = Math.PI / 4; 樓底.scale.set(1.41, 30, 1.41); 樓底.position.y = -15.5; g.add(樓底);
+      const 窗貼 = 畫布貼圖(64, 64, (c, w, h) => { c.fillStyle = '#141230'; c.fillRect(0, 0, w, h); for (let y = 4; y < h; y += 16) for (let x = 4; x < w; x += 16) { const r = Math.random(); if (r > 0.4) { c.fillStyle = r > 0.9 ? '#7fe3ff' : '#ffd678'; c.fillRect(x, y, 8, 10); } } });
+      const 紅燈 = [];
+      環(46, 22, 70, (x, z, k) => {
+        const w = 4 + Math.random() * 6, h = 14 + Math.random() * 40, d = 4 + Math.random() * 6;
+        const t = 窗貼.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(Math.round(w / 2), Math.round(h / 2));
+        const m = new T.Mesh(盒(w, h, d), new T.MeshBasicMaterial({ map: t })); m.position.set(x, h / 2 - 22, z); m.lookAt(0, h / 2 - 22, 0); g.add(m);
+        if (k % 3 === 0) { const l = new T.Mesh(new T.SphereGeometry(0.35, 8, 6), new T.MeshBasicMaterial({ color: 0xff3b5c })); l.position.set(x, h - 22 + 0.6, z); g.add(l); 紅燈.push(l); }
+      });
+      const 月 = new T.Mesh(new T.SphereGeometry(6, 24, 16), new T.MeshBasicMaterial({ color: 0xfff6d0, fog: false })); 月.position.set(-60, 45, -90); g.add(月);
+      const 月光 = new T.Sprite(new T.SpriteMaterial({ map: 圓點, color: 0xfff6d0, transparent: true, opacity: 0.35, depthWrite: false, fog: false })); 月光.scale.set(30, 30, 1); 月光.position.copy(月.position); g.add(月光);
+      const 招牌 = new T.Mesh(new T.PlaneGeometry(6, 2), new T.MeshBasicMaterial({ map: 畫布貼圖(384, 128, (c, w, h) => { c.fillStyle = '#1a0a20'; c.fillRect(0, 0, w, h); c.shadowColor = '#ff4fd8'; c.shadowBlur = 20; c.strokeStyle = '#ff7ae6'; c.lineWidth = 8; c.strokeRect(10, 10, w - 20, h - 20); c.font = 'bold 64px sans-serif'; c.fillStyle = '#ffd1f5'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('劍士拉麵', w / 2, h / 2); }), side: T.DoubleSide }));
+      招牌.position.set(4, 3.5, -12.6); g.add(招牌);
+      const 水 = new T.MeshToonMaterial({ color: 0x5a4030 });
+      const 塔 = new T.Mesh(new T.CylinderGeometry(1.4, 1.4, 2.6, 12), 水); 塔.position.set(10.5, 3.6, 10.5); 塔.castShadow = true; g.add(塔);
+      const 頂 = new T.Mesh(new T.ConeGeometry(1.6, 1.2, 12), new T.MeshToonMaterial({ color: 0x3a2a20 })); 頂.position.set(10.5, 5.5, 10.5); g.add(頂);
+      [[-0.9, -0.9], [0.9, -0.9], [-0.9, 0.9], [0.9, 0.9]].forEach(([a, b]) => { const l = new T.Mesh(盒(0.15, 2.3, 0.15), 水); l.position.set(10.5 + a, 1.15, 10.5 + b); g.add(l); });
+      g.add(粒子(200, ['#ffffff'], 0.5, [-150, 150, 40, 120, -150, 150]));
+      g.userData.動 = (dt, t) => 紅燈.forEach((l, k) => { l.visible = Math.sin(t * 4 + k) > 0; });
+      場地邊(g, 0x7fe3ff);
+    } else { // 太空站
+      Object.assign(設定, { bg: ['#05040f', '#120a2a'], fog: null, hemi: [0xbcd0ff, 0x202030, 0.7], dir: [0xffffff, 0.9], 鏡限: 13 });
+      地板(g, 26, 畫布貼圖(128, 128, (c, w, h) => { c.fillStyle = '#7a8096'; c.fillRect(0, 0, w, h); c.strokeStyle = 'rgba(30,34,50,.6)'; c.lineWidth = 3; c.strokeRect(2, 2, w - 4, h - 4); c.fillStyle = '#b8bed0'; [[10, 10], [w - 10, 10], [10, h - 10], [w - 10, h - 10]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 3, 0, 7); c.fill(); }); }, 8));
+      const 平台 = new T.Mesh(new T.CylinderGeometry(18.4, 16, 2, 4), new T.MeshToonMaterial({ color: 0x4a4f62 })); 平台.rotation.y = Math.PI / 4; 平台.position.y = -1.01; g.add(平台);
+      const 燈條 = [];
+      [[0, -12.6, 25, 0.3], [0, 12.6, 25, 0.3], [-12.6, 0, 0.3, 25], [12.6, 0, 0.3, 25]].forEach(([x, z, w, d]) => { const m = new T.Mesh(盒(w, 0.1, d), new T.MeshBasicMaterial({ color: 0x5affd6 })); m.position.set(x, 0.05, z); g.add(m); 燈條.push(m); });
+      const 柱材 = new T.MeshToonMaterial({ color: 0x9aa0b8 });
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4 + Math.PI / 8; const p = new T.Mesh(盒(0.6, 10, 0.6), 柱材); p.position.set(Math.cos(a) * 15, 5, Math.sin(a) * 15); p.castShadow = true; g.add(p); }
+      const 環頂 = new T.Mesh(new T.TorusGeometry(15, 0.35, 8, 48), 柱材); 環頂.rotation.x = Math.PI / 2; 環頂.position.y = 10; g.add(環頂);
+      const 地球貼 = 畫布貼圖(512, 256, (c, w, h) => { c.fillStyle = '#2a6fd6'; c.fillRect(0, 0, w, h); c.fillStyle = '#4fb36a'; for (let k = 0; k < 14; k++) { c.beginPath(); c.ellipse(Math.random() * w, 40 + Math.random() * (h - 80), 20 + Math.random() * 40, 12 + Math.random() * 26, Math.random() * 3, 0, 7); c.fill(); } c.fillStyle = 'rgba(255,255,255,.75)'; for (let k = 0; k < 18; k++) { c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 30, 6, 0, 0, 7); c.fill(); } c.fillStyle = '#f4f8ff'; c.fillRect(0, 0, w, 14); c.fillRect(0, h - 14, w, 14); });
+      const 地球 = new T.Mesh(new T.SphereGeometry(22, 48, 32), new T.MeshLambertMaterial({ map: 地球貼 })); 地球.position.set(-45, 12, -70); g.add(地球);
+      const 大氣 = new T.Sprite(new T.SpriteMaterial({ map: 圓點, color: 0x6ebeff, transparent: true, opacity: 0.45, depthWrite: false, blending: T.AdditiveBlending })); 大氣.scale.set(62, 62, 1); 大氣.position.copy(地球.position); g.add(大氣);
+      const 星雲 = new T.Sprite(new T.SpriteMaterial({ map: 圓點, color: 0x8c50ff, transparent: true, opacity: 0.3, depthWrite: false, blending: T.AdditiveBlending })); 星雲.scale.set(90, 60, 1); 星雲.position.set(70, 30, 60); g.add(星雲);
+      const 星 = []; for (let k = 0; k < 900; k++) { const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = 160; 星.push(Math.sqrt(1 - u * u) * Math.cos(a) * r, Math.abs(u) * r * 0.9 + 5, Math.sqrt(1 - u * u) * Math.sin(a) * r); }
+      const 星幾 = new T.BufferGeometry(); 星幾.setAttribute('position', new T.Float32BufferAttribute(星, 3));
+      g.add(new T.Points(星幾, new T.PointsMaterial({ color: 0xffffff, size: 0.9, map: 圓點, transparent: true, depthWrite: false })));
+      const 衛星 = new T.Group(); 衛星.add(new T.Mesh(盒(1, 0.8, 0.8), new T.MeshToonMaterial({ color: 0xc8ccd8 }))); [-1.3, 1.3].forEach(x => { const s = new T.Mesh(盒(1.4, 0.05, 0.6), new T.MeshToonMaterial({ color: 0x3a6ad0 })); s.position.x = x; 衛星.add(s); }); g.add(衛星);
+      g.userData.動 = (dt, t) => { 地球.rotation.y += dt * 0.05; 衛星.position.set(Math.cos(t * 0.2) * 40, 22, Math.sin(t * 0.2) * 40); 衛星.rotation.y = t; 燈條.forEach((m, k) => m.material.color.setHex(Math.floor(t * 2 + k) % 3 === 0 ? 0x5affd6 : 0x1f5a50)); };
+      場地邊(g, 0x5affd6);
+    }
+    g.userData.設定 = 設定;
+    return g;
+  }
+  function 換場地(i) {
+    if (場地號 === i && 場地) return;
+    if (場地) { 場景.remove(場地); 場地.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+    場地 = 做場地(i); 場地號 = i; 場景.add(場地);
+    const 設 = 場地.userData.設定;
+    場景.background = 漸層(設.bg[0], 設.bg[1]);
+    場景.fog = 設.fog ? new T.Fog(設.fog[0], 設.fog[1], 設.fog[2]) : null;
+    hemi.color.set(設.hemi[0]); hemi.groundColor.set(設.hemi[1]); hemi.intensity = 設.hemi[2];
+    sun.color.set(設.dir[0]); sun.intensity = 設.dir[1];
+  }
+  function 動場地(dt) { 場地.traverse(o => { if (o.userData.動) o.userData.動(dt, 時間); }); }
+
+  // ---------- 大絕招的 3D 特效 ----------
+  const 特效物件 = new Map();
+  function 建特效(fx) {
+    const g = new T.Group(); let 更新 = () => {};
+    const 位 = () => g.position.set(fx.x * S, fx.h * S, fx.z * S);
+    const 淡 = () => clamp(1 - Math.max(0, (fx.t - fx.life + 0.25) / 0.25), 0, 1);
+    const 設淡 = () => { const a = 淡(); g.traverse(o => { if (o.material) { o.material.transparent = true; o.material.opacity = (o.material.userData.a ?? 1) * a; } }); g.visible = fx.t >= fx.delay; };
+    const 沿線 = () => { g.position.set(fx.ox * S, 0, fx.oz * S); g.rotation.y = Math.PI / 2 - Math.atan2(fx.uz, fx.ux); };
+    switch (fx.draw) {
+      case 'emoji': { const s = 符精靈(fx.sym, fx.size * S * 1.5); g.add(s); 更新 = () => { 位(); if (fx.spin) s.material.rotation = 時間 * 14; 設淡(); }; break; }
+      case 'spin': {
+        const ring = new T.Mesh(new T.TorusGeometry(fx.r * S * 0.8, 0.09, 8, 40), 光材(0xff7828, 0.75)); ring.rotation.x = Math.PI / 2; g.add(ring);
+        const ss = []; for (let k = 0; k < 8; k++) { const s = 符精靈(fx.sym, 1.0); g.add(s); ss.push(s); }
+        更新 = () => { 位(); ss.forEach((s, k) => { const a = 時間 * 9 + k * Math.PI / 4; s.position.set(Math.cos(a) * fx.r * S * 0.8, Math.sin(時間 * 6 + k) * 0.5, Math.sin(a) * fx.r * S * 0.8); }); 設淡(); };
+        break;
+      }
+      case 'burst': {
+        const ball = new T.Mesh(new T.SphereGeometry(1, 24, 16), 光材(0xffd050, 0.55)); g.add(ball);
+        const ball2 = new T.Mesh(new T.SphereGeometry(1, 24, 16), 光材(0xfffbe0, 0.5)); g.add(ball2);
+        const s = 符精靈('☀️', 2.4); s.position.y = 0.4; g.add(s);
+        更新 = () => { 位(); const k = Math.min(1, fx.t / 0.25); ball.scale.setScalar(fx.r * S * k); ball2.scale.setScalar(fx.r * S * k * 0.5); 設淡(); };
+        break;
+      }
+      case 'tornado': {
+        const s = 符精靈('🌪️', 3.2); s.position.y = 0.6; g.add(s);
+        const rs = []; for (let k = 0; k < 5; k++) { const r = new T.Mesh(new T.TorusGeometry(0.5 + k * 0.28, 0.06, 6, 30), 光材(0xc8ffdc, 0.7)); r.rotation.x = Math.PI / 2; r.position.y = -0.8 + k * 0.6; g.add(r); rs.push(r); }
+        更新 = () => { 位(); rs.forEach((r, k) => { r.position.x = Math.sin(時間 * 10 + k) * 0.15; r.rotation.z = 時間 * 8; }); 設淡(); };
+        break;
+      }
+      case 'rock': {
+        const s = 符精靈('🪨', 2.8); g.add(s);
+        const 圈 = new T.Mesh(new T.RingGeometry(1.0, 1.3, 32), 光材(0xff4040, 0.8)); 圈.rotation.x = -Math.PI / 2; 場景.add(圈);
+        g.userData.清 = () => 場景.remove(圈);
+        更新 = () => { 位(); s.visible = fx.t >= fx.delay; 圈.position.set(fx.x * S, 0.04, fx.z * S); 圈.visible = fx.h > 80; 圈.material.opacity = 0.5 + Math.sin(時間 * 20) * 0.3; };
+        break;
+      }
+      case 'zap': {
+        const s = 符精靈('⚡', 2.6); g.add(s);
+        const bolt = new T.Mesh(new T.CylinderGeometry(0.12, 0.3, 14, 6), 光材(0xfff36a, 0.9)); bolt.position.y = 6; g.add(bolt);
+        更新 = () => { 位(); bolt.visible = Math.random() > 0.3; bolt.rotation.z = (Math.random() - 0.5) * 0.15; 設淡(); };
+        break;
+      }
+      case 'petals': {
+        const ps = []; for (let k = 0; k < 34; k++) { const s = 符精靈('🌸', 0.7); g.add(s); ps.push(s); }
+        更新 = () => { 沿線(); const H0 = fx.h1 * S; ps.forEach((s, k) => s.position.set(Math.sin(時間 * 5 + k) * fx.w * S + (R(k) - 0.5) * fx.w * S, H0 - ((R(k + 9) * H0 + 時間 * 5) % H0), R(k + 3) * fx.len * S)); 設淡(); };
+        break;
+      }
+      case 'whip': {
+        const 綠 = new T.MeshToonMaterial({ color: 0x7ec93a }); const bs = [];
+        for (let k = 0; k < 18; k++) { const b = new T.Mesh(new T.SphereGeometry(0.16, 8, 6), 綠); g.add(b); bs.push(b); }
+        const 頭 = 符精靈('🐍', 1.2); g.add(頭);
+        更新 = () => { 沿線(); const y = (fx.h0 + fx.h1) / 2 * S, L = fx.len * S * Math.min(1, fx.t / 0.15); bs.forEach((b, k) => b.position.set(Math.sin(k * 0.9 + 時間 * 20) * 0.35, y, L * k / 17)); 頭.position.set(0, y + 0.2, L); 設淡(); };
+        break;
+      }
+      case 'beam': {
+        const 虹 = [0xff5a5a, 0xffa53a, 0xffe14a, 0x5ad16b, 0x4aa8ff, 0x9b6bff]; const bs = [];
+        const hh = (fx.h1 - fx.h0) * S / 6;
+        虹.forEach((c, k) => { const b = new T.Mesh(盒(0.5, hh, fx.len * S), 光材(c, 0.85)); b.position.set(0, fx.h0 * S + hh * (k + 0.5), fx.len * S / 2); g.add(b); bs.push(b); });
+        更新 = () => { 沿線(); bs.forEach((b, k) => { b.position.x = Math.sin(時間 * 30 + k) * 0.05; b.scale.x = 1 + Math.sin(時間 * 40 + k) * 0.2; }); 設淡(); };
+        break;
+      }
+      case 'foxfire': {
+        const 光 = new T.Sprite(new T.SpriteMaterial({ map: 圓點, color: 0x4aa8ff, transparent: true, opacity: 0.8, depthWrite: false, blending: T.AdditiveBlending })); 光.scale.set(2.2, 2.2, 1); g.add(光);
+        const 火 = 符精靈('🔥', 1.3); 火.material.color.set(0x7ab8ff); g.add(火);
+        更新 = () => { 位(); 光.scale.setScalar(2 + Math.sin(時間 * 20) * 0.3); 光.scale.z = 1; 設淡(); };
+        break;
+      }
+      case 'web': { const s = 符精靈('🕸️', 2.4); g.add(s); 更新 = () => { 位(); s.material.rotation = 時間 * 6; 設淡(); }; break; }
+      case 'claw': {
+        const 粉 = 光材(0xff70b8, 0.9); const 爪 = [];
+        [-0.45, 0, 0.45].forEach((x, k) => { const b = new T.Mesh(盒(0.12, 0.12, 1), 粉); b.rotation.z = 0.3; g.add(b); 爪.push([b, x, k]); });
+        const ss = []; for (let k = 0; k < 6; k++) { const s = 符精靈(k % 2 ? '🌺' : '🐾', 0.8); g.add(s); ss.push(s); }
+        更新 = () => { 沿線(); const L = fx.len * S * Math.min(1, fx.t / 0.3); 爪.forEach(([b, x, k]) => { b.scale.z = Math.max(0.01, L); b.position.set(x, 1.2 + k * 0.25 - 0.25, L / 2); }); ss.forEach((s, k) => s.position.set(Math.sin(k * 2) * 0.6, 0.6 + (k % 3) * 0.5, L * (k + 1) / 7)); 設淡(); };
+        break;
+      }
+      case 'icespikes': {
+        const 冰材 = new T.MeshToonMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.85 }); 冰材.userData.a = 0.85;
+        const cs = [];
+        for (let k = 0; k < 11; k++) { const c = new T.Mesh(new T.ConeGeometry(0.35 + R(k) * 0.2, 1, 6), 冰材); c.position.set((R(k + 5) - 0.5) * 1.2, 0, (k + 0.5) / 11 * fx.len * S); c.castShadow = true; g.add(c); cs.push(c); }
+        const ss = []; for (let k = 0; k < 6; k++) { const s = 符精靈(k % 2 ? '❄️' : '💎', 0.8); g.add(s); ss.push(s); }
+        更新 = () => { 沿線(); cs.forEach((c, k) => { const h = clamp((fx.t - k * 0.04) / 0.15, 0, 1) * (1.6 + R(k + 9) * 1.4); c.scale.set(1, Math.max(0.01, h), 1); c.position.y = h / 2; }); ss.forEach((s, k) => s.position.set(Math.sin(時間 * 3 + k) * 1.2, 1 + ((時間 * 2 + k) % 2), R(k + 2) * fx.len * S)); 設淡(); };
+        break;
+      }
+      case 'ring': {
+        const rs = []; for (let k = 0; k < 3; k++) { const r = new T.Mesh(new T.RingGeometry(0.9, 1, 48), 光材(0xff78c8, 0.9 - k * 0.25)); r.rotation.x = -Math.PI / 2; g.add(r); rs.push(r); }
+        const s = 符精靈('🔊', 1.3); s.position.y = 1.8; g.add(s);
+        更新 = () => { 位(); g.position.y = 0.1; rs.forEach((r, k) => { const rr = Math.max(0.2, (fx.r - k * 25) * S); r.scale.set(rr, rr, 1); r.position.y = 0.3 + k * 0.6; }); 設淡(); };
+        break;
+      }
+    }
+    return { obj: g, 更新 };
+  }
+  function 同步特效() {
+    const 有 = new Set(F.fx);
+    特效物件.forEach((o, fx) => {
+      if (有.has(fx)) return;
+      特效根.remove(o.obj); if (o.obj.userData.清) o.obj.userData.清();
+      o.obj.traverse(x => { if (x.material && x.material !== 外框材) x.material.dispose(); });
+      特效物件.delete(fx);
+    });
+    F.fx.forEach(fx => { let o = 特效物件.get(fx); if (!o) { o = 建特效(fx); 特效根.add(o.obj); 特效物件.set(fx, o); } o.更新(fx); });
+  }
+
+  // ---------- 鏡頭:在你背後,看著對手 ----------
+  const v1 = new T.Vector3(), v2 = new T.Vector3();
+  function 更新鏡(dt) {
+    const p = F.p, e = F.e, 限 = 場地.userData.設定.鏡限;
+    let ux = (e.x - p.x) * S, uz = (e.z - p.z) * S; const L = Math.hypot(ux, uz) || 0.001; ux /= L; uz /= L;
+    const rx = -uz, rz = ux;
+    let 快 = 0.02;
+    if (F.phase === 'ko' && F.勝者 && F.勝者 !== 'draw') {
+      const f = F.勝者 === 'p' ? e : p, a = 時間 * 0.7;
+      v1.set(f.x * S + Math.cos(a) * 5, 2.6, f.z * S + Math.sin(a) * 5); v2.set(f.x * S, 0.8, f.z * S); 快 = 0.005;
+    } else if (F.聚焦 && F.聚焦.t > 0) {
+      const f = F.聚焦.who, fx = Math.cos(f.ang), fz = Math.sin(f.ang);
+      v1.set(f.x * S + fx * 2.6 - fz * 5.6, f.h * S + 2.8, f.z * S + fz * 2.6 + fx * 5.6); v2.set(f.x * S + fx * 1.2, f.h * S + 1.5, f.z * S + fz * 1.2); 快 = 0.004;
+    } else {
+      const back = 4.6 + L * 0.22, P = { x: p.x * S, y: p.h * S * 0.5, z: p.z * S };
+      v1.set(P.x - ux * back + rx * 1.3, P.y + 2.5 + L * 0.1, P.z - uz * back + rz * 1.3);
+      v2.set(P.x + ux * L * 0.55, 1.4 + P.y, P.z + uz * L * 0.55);
+    }
+    const r = Math.hypot(v1.x, v1.z); if (r > 限) { v1.x *= 限 / r; v1.z *= 限 / r; }
+    const k = 1 - Math.pow(快, dt);
+    鏡位.lerp(v1, k); 鏡看.lerp(v2, k);
+    cam.position.copy(鏡位);
+    if (鏡.震 > 0) cam.position.add(v1.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(鏡.震 / 40));
+    cam.lookAt(鏡看);
+  }
+
+  api.ok = true;
+  api.顯示 = (on) => { const v = on ? 'visible' : 'hidden'; if (gl.style.visibility !== v) gl.style.visibility = v; };
+  api.準備比賽 = () => {
+    換場地(選場);
+    [模P, 模E].forEach(m => { if (m) 場景.remove(m.root); });
+    模P = 做劍士(F.p.i, F.p.色); 模E = 做劍士(F.e.i, F.e.色);
+    場景.add(模P.root); 場景.add(模E.root);
+  };
+  api.換局 = () => {
+    if (!場地) return;
+    鏡位.set(0, 9, 15); 鏡看.set(0, 1.5, 0);   // 每局開始鏡頭從遠方飛進來
+    特效物件.forEach(o => { 特效根.remove(o.obj); if (o.obj.userData.清) o.obj.userData.清(); }); 特效物件.clear();
+  };
+  api.畫 = () => {
+    模E.root.visible = true;
+    同步劍士(模P, F.p); 同步劍士(模E, F.e);
+    同步特效(); 動場地(幀dt); 更新鏡(幀dt);
+    renderer.render(場景, cam);
+  };
+  api.畫勝利 = () => {
+    模E.root.visible = false;
+    特效物件.forEach(o => { 特效根.remove(o.obj); if (o.obj.userData.清) o.obj.userData.清(); }); 特效物件.clear();
+    const t = 場景時間, a = t * 0.5 + 0.6;
+    cam.position.set(Math.sin(a) * 7.2, 2.6, Math.cos(a) * 7.2); cam.lookAt(0, 1.9, 0);
+    模P.root.position.set(0, Math.abs(Math.sin(t * 4)) * 0.6, 0);
+    模P.root.rotation.y = Math.atan2(cam.position.x, cam.position.z);
+    擺(模P, 'win', 0, 時間, '', 0);
+    模P.shield.visible = false; 模P.ice.visible = false; 模P.網.visible = false;
+    動場地(幀dt);
+    renderer.render(場景, cam);
+  };
+  const tmp = new T.Vector3();
+  api.投影 = (x, h, z) => {
+    tmp.set(x * S, h * S, z * S).project(cam);
+    if (tmp.z > 1 || tmp.z < -1) return null;
+    return { x: (tmp.x + 1) / 2 * W, y: (1 - tmp.y) / 2 * H, s: 1 };
+  };
+  return api;
+})();
+
+// ===================== 假廣告 =====================
+const 廣告們 = [
+  { 名: '跳跳飯糰', 底: ['#ffe27a', '#ffb347'], 字: ['新產品!跳跳飯糰 🍙', '吃一口……就會想跳舞!', '(其實不會,但是很好吃)'] },
+  { 名: '超黏口香糖', 底: ['#ffc4e1', '#ff7ab6'], 字: ['超黏口香糖 🍬', '黏到兩個人都拉不開!', '請不要黏在頭髮上 😱'] },
+  { 名: '飛天襪子', 底: ['#a8dcff', '#5aa8f0'], 字: ['飛天襪子 🧦', '早上找不到襪子嗎?', '因為它自己飛走了!'] },
+  { 名: '鋼鐵冰淇淋', 底: ['#ffcf8a', '#ff8a3d'], 字: ['鋼鐵冰淇淋 🍦', '太陽怎麼曬都不會融化!', '但是……也咬不動 🦷'] }
+];
+function 開始廣告(獎勵) {
+  廣告 = { 種類: Math.floor(Math.random() * 廣告們.length), 獎勵, t: 0 };
+  換場景('ad');
+}
+function 領取獎勵() {
+  if (廣告.獎勵 === 'unlock' && 解鎖數 < 解鎖上限) {
+    解鎖佇列.push(解鎖數); 解鎖數++; 動畫之後 = 'pickP'; 換場景('unlockAnim');
+    return;
+  }
+  if (廣告.獎勵 === 'color' && 顏色數 < SETTINGS.顏色最多) {
+    顏色數++; 選色 = 顏色數 - 1; 吐司('🎨 新衣服顏色解鎖了!'); 換場景('pickP'); return;
+  }
+  換場景('pickP');
+}
+function 畫廣告() {
+  const A = 廣告們[廣告.種類], t = 廣告.t;
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, A.底[0]); g.addColorStop(1, A.底[1]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (let k = 0; k < 14; k++) { ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.arc((R(k) * W + t * 40 * (k % 2 ? 1 : -1) + W) % W, R(k + 5) * H, 20 + R(k + 2) * 40, 0, Math.PI * 2); ctx.fill(); }
+  const cx = W / 2, cy = 230;
+  if (廣告.種類 === 0) {
+    const 跳 = Math.abs(Math.sin(t * 5)) * 90;
+    ctx.save(); ctx.translate(cx, cy + 60 - 跳); ctx.rotate(Math.sin(t * 5) * 0.4);
+    字('🍙', 0, 0, 130); ctx.restore();
+    ctx.strokeStyle = '#3a2a10'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx - 20, cy + 115 - 跳); ctx.lineTo(cx - 30 + Math.sin(t * 10) * 15, cy + 160 - 跳 * 0.5);
+    ctx.moveTo(cx + 20, cy + 115 - 跳); ctx.lineTo(cx + 30 - Math.sin(t * 10) * 15, cy + 160 - 跳 * 0.5); ctx.stroke();
+    for (let k = 0; k < 6; k++) 字(k % 2 ? '🎵' : '🎶', cx - 250 + k * 100, 120 + Math.sin(t * 3 + k) * 30, 34);
+  } else if (廣告.種類 === 1) {
+    const 拉 = 120 + Math.sin(t * 1.5) * 90;
+    畫劍士(1, 0, cx - 60 - 拉, cy + 120, 1.2, -1, 'hit', 0);
+    畫劍士(6, 0, cx + 60 + 拉, cy + 120, 1.2, 1, 'hit', 0);
+    ctx.strokeStyle = '#ff5aa5'; ctx.lineWidth = 10; ctx.beginPath();
+    ctx.moveTo(cx - 45 - 拉, cy + 50); ctx.quadraticCurveTo(cx, cy + 110 + Math.sin(t * 4) * 20, cx + 45 + 拉, cy + 50); ctx.stroke();
+    字('💦', cx - 70 - 拉, cy - 40, 26); 字('💦', cx + 70 + 拉, cy - 40, 26);
+    字('🍬', cx, cy - 60, 70);
+  } else if (廣告.種類 === 2) {
+    for (let k = 0; k < 4; k++) { ctx.fillStyle = 'rgba(255,255,255,.9)'; const x = (k * 230 - t * 60 + 1000) % 1000 - 100; ctx.beginPath(); ctx.arc(x, 90 + k * 40, 30, 0, Math.PI * 2); ctx.arc(x + 35, 85 + k * 40, 38, 0, Math.PI * 2); ctx.arc(x + 70, 90 + k * 40, 30, 0, Math.PI * 2); ctx.fill(); }
+    const x = cx + Math.sin(t * 1.3) * 250, y = cy + Math.sin(t * 2.6) * 80;
+    const 拍 = Math.sin(t * 20) * 0.6;
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
+    [-1, 1].forEach(s => { ctx.save(); ctx.translate(x + s * 25, y - 20); ctx.rotate(s * (0.4 + 拍)); ctx.beginPath(); ctx.ellipse(s * 30, 0, 34, 14, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); });
+    字('🧦', x, y, 90);
+    字('🏃 等等我!', cx + Math.sin(t * 1.3 - 0.8) * 250, 370, 28, '#1a2a4a');
+  } else {
+    ctx.save(); ctx.translate(cx + 220, 130); ctx.rotate(t);
+    字('☀️', 0, 0, 120); ctx.restore();
+    字('😠', cx + 220, 130, 40);
+    const 晃 = Math.sin(t * 8) * 0.12;
+    ctx.save(); ctx.translate(cx - 60, cy + 40); ctx.rotate(晃); 字('🍦', 0, 0, 140); ctx.restore();
+    字('😎', cx - 60, cy + 10, 40);
+    for (let k = 0; k < 3; k++) 字('💧', cx + 120 + k * 30, 200 + ((t * 80 + k * 40) % 120), 22);
+  }
+  // 標語:每 5 秒換一句
+  const 句 = A.字[Math.min(2, Math.floor(t / 5))];
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; 圓角(80, 380, W - 160, 60, 14); ctx.fill();
+  字(句, W / 2, 410, 28, '#2a1a3a');
+  // 角落:廣告標籤和倒數
+  ctx.fillStyle = '#222'; 圓角(14, 14, 74, 30, 8); ctx.fill(); 字('📺 廣告', 51, 29, 15, '#ffe14a');
+  const 剩 = Math.max(0, Math.ceil(SETTINGS.廣告秒數 - t));
+  ctx.fillStyle = 'rgba(0,0,0,.7)'; 圓角(W - 150, 14, 136, 30, 8); ctx.fill();
+  字(剩 > 0 ? '還有 ' + 剩 + ' 秒' : '看完了!', W - 82, 29, 15, '#fff');
+  ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, H - 6, W, 6);
+  ctx.fillStyle = '#ffe14a'; ctx.fillRect(0, H - 6, W * Math.min(1, t / SETTINGS.廣告秒數), 6);
+  if (t >= SETTINGS.廣告秒數) {
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 0, W, H);
+    按鈕(W / 2 - 130, 200, 260, 70, '🎁 領取獎勵', 領取獎勵, { 主: true, size: 26 });
+    提示(用過鍵盤 ? '按 J 領取獎勵' : '👆 點按鈕領取獎勵');
+  }
+}
+
+// ===================== 各個畫面 =====================
+function 格位置(i) {
+  const 一排 = Math.ceil(劍士們.length / 2);
+  const row = i < 一排 ? 0 : 1, col = row ? i - 一排 : i, n = row ? 劍士們.length - 一排 : 一排;
+  const cw = Math.min(96, Math.floor((W - 20) / 一排)), ch = 118;
+  return { x: (W - n * cw) / 2 + col * cw + 4, y: 78 + row * (ch + 8), w: cw - 8, h: ch };
+}
+function 畫劍士格子(只能選解鎖) {
+  for (let i = 0; i < 劍士們.length; i++) {
+    const c = 格位置(i), 鎖 = 只能選解鎖 && !已解鎖(i), 選中 = i === 游標;
+    const hover = mouse.x >= c.x && mouse.x <= c.x + c.w && mouse.y >= c.y && mouse.y <= c.y + c.h;
+    圓角(c.x, c.y, c.w, c.h, 12);
+    ctx.fillStyle = 鎖 ? 'rgba(25,22,34,.92)' : 'rgba(44,38,62,.95)'; ctx.fill();
+    ctx.lineWidth = 選中 ? 4 : 2; ctx.strokeStyle = 選中 ? '#f5b335' : hover ? '#a99bd6' : 劍士們[i].鬼 ? '#8a2a3a' : '#4a4266'; ctx.stroke();
+    if (劍士們[i].鬼) 字('👹', c.x + c.w - 12, c.y + 12, 13);
+    if (鎖) {
+      ctx.globalAlpha = 0.25; 畫劍士(i, 0, c.x + c.w / 2, c.y + c.h - 22, 0.72, 1, 'idle', 0); ctx.globalAlpha = 1;
+      字('🔒', c.x + c.w / 2, c.y + 48, 30);
+    } else {
+      畫劍士(i, 只能選解鎖 && i === 選P ? 選色 : 0, c.x + c.w / 2, c.y + c.h - 22, 0.72, 1, 選中 ? 'win' : 'idle', 0);
+    }
+    字(劍士們[i].符 + 劍士們[i].名.slice(0, 2), c.x + c.w / 2, c.y + c.h - 10, 13, 鎖 ? '#777' : '#f4ecdd');
+    btns.push({ x: c.x, y: c.y, w: c.w, h: c.h, act: () => { 游標 = i; 確定選擇(); } });
+  }
+}
+function 畫資訊(i, y) {
+  const d = 劍士們[i];
+  ctx.fillStyle = 'rgba(20,17,30,.9)'; 圓角(16, y, W - 32, 52, 12); ctx.fill();
+  字(d.符 + ' ' + d.名, 34, y + 18, 20, '#fff', 'left');
+  字('大絕招:' + d.絕, 34, y + 39, 15, '#ffd27a', 'left', 'normal');
+}
+function 確定選擇() {
+  if (scene === 'pickP') {
+    if (!已解鎖(游標)) { 吐司('🔒 看廣告或打贏比賽就能解鎖!'); return; }
+    選P = 游標; 換場景('pickE');
+  } else if (scene === 'pickE') { 選E = 游標; 換場景('pickStage'); }
+  else if (scene === 'pickStage') { 選場 = 游標; 換場景('pickDiff'); }
+  else if (scene === 'pickDiff') { 選難 = 游標; 開始比賽(); }
+}
+function 返回() {
+  if (scene === 'pickP') 換場景('title');
+  else if (scene === 'pickE') 換場景('pickP');
+  else if (scene === 'pickStage') 換場景('pickE');
+  else if (scene === 'pickDiff') 換場景('pickStage');
+  else if (scene === 'adPick' || scene === 'code') 換場景(scene === 'code' ? 'title' : 'pickP');
+}
+function 選單底(標題, 副) {
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#221a36'); g.addColorStop(1, '#0f0c17');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(245,179,53,.08)'; ctx.lineWidth = 1;
+  for (let k = 0; k < 16; k++) { ctx.beginPath(); ctx.moveTo(k * 60 - 100, 0); ctx.lineTo(k * 60 + 100, H); ctx.stroke(); }
+  字(標題, W / 2, 30, 26, '#f5b335', 'center', 'bold', 4);
+  if (副) 字(副, W / 2, 56, 14, '#bdb3d6', 'center', 'normal');
+}
+function 畫標題() {
+  畫場地(Math.floor(時間 / 6) % 場地們.length, 時間);
+  ctx.fillStyle = 'rgba(10,8,18,.55)'; ctx.fillRect(0, 0, W, H);
+  // 劍士遊行
+  for (let k = 0; k < 劍士們.length; k++) {
+    const x = ((k * 70 + 時間 * 50) % (劍士們.length * 70)) - 60;
+    畫劍士(k, 0, x, 地面 + 20, 0.7, 1, 'walk', 0);
+  }
+  字('十三劍士對決', W / 2, 120, 64, '#f5b335', 'center', 'bold', 10);
+  字('選一位劍士,跟電腦三戰兩勝!', W / 2, 180, 20, '#fff', 'center', 'normal', 4);
+  按鈕(W / 2 - 120, 220, 240, 58, '▶ 開始', () => 換場景('pickP'), { 主: true, size: 24 });
+  按鈕(W / 2 - 120, 290, 240, 46, '🔑 輸入密碼', () => { 密碼輸入 = ''; 密碼訊息 = ''; 換場景('code'); });
+  字('已解鎖 ' + 已解鎖數() + ' / ' + 劍士們.length + ' 位角色', W / 2, 356, 15, '#ddd', 'center', 'normal', 3);
+  提示(用過鍵盤 ? '按 J 開始' : '👆 先點一下畫面(點一下就開始),然後就能用鍵盤了');
+}
+function 畫選角() {
+  選單底('選你的劍士', '已解鎖 ' + 已解鎖數() + ' / ' + 劍士們.length + ' 位 · 🔑 你的密碼:' + 產生密碼());
+  畫劍士格子(true);
+  畫資訊(游標, 340);
+  // 衣服顏色
+  字('🎨 衣服顏色', 520, 358, 15, '#fff', 'left');
+  for (let k = 0; k < SETTINGS.顏色最多; k++) {
+    const x = 520 + k * 46, y = 370, 鎖 = k >= 顏色數;
+    ctx.fillStyle = 鎖 ? '#333' : (k === 0 ? 劍士們[選P].衣 : 變色[k]);
+    if (k === 0 && 已解鎖(游標)) ctx.fillStyle = 劍士們[游標].衣;
+    圓角(x, y, 38, 18, 6); ctx.fill();
+    ctx.lineWidth = k === 選色 ? 3 : 1; ctx.strokeStyle = k === 選色 ? '#f5b335' : '#666'; ctx.stroke();
+    if (鎖) 字('🔒', x + 19, y + 9, 11);
+    btns.push({ x, y: y - 4, w: 38, h: 26, act: () => { if (k < 顏色數) 選色 = k; else 吐司('🔒 看廣告就能解鎖新顏色!'); } });
+  }
+  按鈕(16, 404, 130, 48, '⬅ 返回', 返回);
+  按鈕(160, 404, 290, 48, '📺 看廣告拿獎勵', () => 換場景('adPick'));
+  按鈕(W - 196, 404, 180, 48, '✔ 選這位', 確定選擇, { 主: true, off: !已解鎖(游標) });
+  選單提示();
+}
+function 畫選對手() {
+  選單底('選你的對手', '你是 ' + 劍士們[選P].符 + 劍士們[選P].名 + ',想跟誰打?(' + 劍士們.length + ' 位都可以選,也可以打鬼!)');
+  畫劍士格子(false);
+  畫資訊(游標, 340);
+  按鈕(16, 404, 130, 48, '⬅ 返回', 返回);
+  按鈕(W - 196, 404, 180, 48, '✔ 跟他打', 確定選擇, { 主: true });
+  選單提示();
+}
+function 畫選場地() {
+  選單底('選戰鬥場地', 劍士們[選P].符 + 劍士們[選P].名 + '  VS  ' + 劍士們[選E].符 + 劍士們[選E].名);
+  for (let i = 0; i < 場地們.length; i++) {
+    const x = 70 + (i % 3) * 225, y = 72 + Math.floor(i / 3) * 162, w = 210, h = 150;
+    圓角(x, y, w, h, 12); ctx.fillStyle = 'rgba(44,38,62,.95)'; ctx.fill();
+    ctx.lineWidth = i === 游標 ? 4 : 2; ctx.strokeStyle = i === 游標 ? '#f5b335' : '#4a4266'; ctx.stroke();
+    ctx.save(); 圓角(x + 6, y + 6, w - 12, 112, 8); ctx.clip();
+    ctx.translate(x + 6, y + 6); ctx.scale((w - 12) / W, 112 / H); 畫場地(i, 時間); ctx.restore();
+    字(場地們[i].符 + ' ' + 場地們[i].名, x + w / 2, y + 134, 18, '#fff');
+    btns.push({ x, y, w, h, act: () => { 游標 = i; 確定選擇(); } });
+  }
+  按鈕(16, 404, 130, 48, '⬅ 返回', 返回);
+  按鈕(W - 196, 404, 180, 48, '✔ 就這裡', 確定選擇, { 主: true });
+  選單提示();
+}
+function 畫選難度() {
+  選單底('電腦要多厲害?', '最後一步!選好就開打');
+  const 說明 = [['🙂', '簡單', '電腦慢吞吞,很少防禦'], ['😐', '普通', '電腦會擋、會放大絕'], ['😈', '困難', '電腦反應超快,常常防禦']];
+  for (let i = 0; i < 3; i++) {
+    const x = 70 + i * 225, y = 120, w = 210, h = 200;
+    圓角(x, y, w, h, 14); ctx.fillStyle = 'rgba(44,38,62,.95)'; ctx.fill();
+    ctx.lineWidth = i === 游標 ? 4 : 2; ctx.strokeStyle = i === 游標 ? '#f5b335' : '#4a4266'; ctx.stroke();
+    字(說明[i][0], x + w / 2, y + 60, 60);
+    字(說明[i][1], x + w / 2, y + 125, 26, '#fff');
+    字(說明[i][2], x + w / 2, y + 165, 14, '#cfc6e6', 'center', 'normal');
+    btns.push({ x, y, w, h, act: () => { 游標 = i; 確定選擇(); } });
+  }
+  按鈕(16, 404, 130, 48, '⬅ 返回', 返回);
+  按鈕(W - 196, 404, 180, 48, '⚔️ 開打!', 確定選擇, { 主: true });
+  選單提示();
+}
+function 畫廣告選擇() {
+  選單底('看廣告拿獎勵 📺', '看一支 15 秒的好笑廣告,選一個獎勵');
+  const 可解鎖 = 解鎖數 < 解鎖上限, 可換色 = 顏色數 < SETTINGS.顏色最多;
+  const 卡 = [
+    { x: 110, 標: '🔓 解鎖新角色', 說: 可解鎖 ? '下一位:' + 劍士們[解鎖數].符 + 劍士們[解鎖數].名 : '全部都解鎖了!', ok: 可解鎖, act: () => 開始廣告('unlock') },
+    { x: 420, 標: '🎨 新衣服顏色', 說: 可換色 ? '已經有 ' + 顏色數 + ' / ' + SETTINGS.顏色最多 + ' 種顏色' : '顏色全部解鎖了!', ok: 可換色, act: () => 開始廣告('color') }
+  ];
+  卡.forEach((c, i) => {
+    const y = 110, w = 270, h = 200;
+    圓角(c.x, y, w, h, 14); ctx.fillStyle = c.ok ? 'rgba(44,38,62,.95)' : 'rgba(30,27,40,.9)'; ctx.fill();
+    ctx.lineWidth = i === 游標 ? 4 : 2; ctx.strokeStyle = i === 游標 ? '#f5b335' : '#4a4266'; ctx.stroke();
+    if (i === 0 && 可解鎖) { ctx.globalAlpha = 0.35; 畫劍士(解鎖數, 0, c.x + w / 2, y + 120, 0.9, 1, 'idle', 0); ctx.globalAlpha = 1; 字('❓', c.x + w / 2, y + 70, 30); }
+    if (i === 1) for (let k = 0; k < SETTINGS.顏色最多; k++) { ctx.fillStyle = k < 顏色數 ? (k ? 變色[k] : 劍士們[選P].衣) : '#333'; ctx.beginPath(); ctx.arc(c.x + 55 + k * 40, y + 80, 15, 0, Math.PI * 2); ctx.fill(); if (k >= 顏色數) 字('?', c.x + 55 + k * 40, y + 80, 14, '#aaa'); }
+    字(c.標, c.x + w / 2, y + 148, 22, c.ok ? '#fff' : '#777');
+    字(c.說, c.x + w / 2, y + 178, 14, c.ok ? '#ffd27a' : '#777', 'center', 'normal');
+    btns.push({ x: c.x, y, w, h, act: () => { if (c.ok) c.act(); else 吐司('這個已經全部拿到了!'); } });
+  });
+  按鈕(16, 404, 130, 48, '⬅ 返回', 返回);
+  選單提示();
+}
+function 畫密碼() {
+  選單底('🔑 輸入密碼', '上次的密碼可以把解鎖的劍士和顏色拿回來');
+  for (let k = 0; k < 4; k++) {
+    const x = W / 2 - 110 + k * 56;
+    圓角(x, 80, 48, 58, 10); ctx.fillStyle = 'rgba(44,38,62,.95)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = k === 密碼輸入.length ? '#f5b335' : '#4a4266'; ctx.stroke();
+    字(密碼輸入[k] || '', x + 24, 110, 32, '#fff');
+  }
+  const 鍵 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✔'];
+  鍵.forEach((k, i) => {
+    const x = W / 2 - 108 + (i % 3) * 74, y = 156 + Math.floor(i / 3) * 56;
+    按鈕(x, y, 66, 48, k, () => 密碼按(k), { 主: k === '✔', size: 22 });
+  });
+  if (密碼訊息) 字(密碼訊息, W / 2, 392, 17, 密碼訊息[0] === '✅' ? '#7ad84a' : '#ff8a7a');
+  按鈕(16, 420, 130, 48, '⬅ 返回', 返回);
+  提示(用過鍵盤 ? '用數字鍵輸入,Enter 確定,Backspace 刪掉' : '👆 點數字輸入密碼');
+}
+function 密碼按(k) {
+  if (k === '⌫') { 密碼輸入 = 密碼輸入.slice(0, -1); 密碼訊息 = ''; return; }
+  if (k === '✔') {
+    if (檢查密碼(密碼輸入)) { 選色 = 0; 密碼訊息 = '✅ 成功!解鎖了 ' + 已解鎖數() + ' 位角色、' + 顏色數 + ' 種顏色'; }
+    else 密碼訊息 = '❌ 這個密碼不對耶,再看一次?';
+    return;
+  }
+  if (密碼輸入.length < 4) 密碼輸入 += k;
+}
+function 畫勝利() {
+  const t = 場景時間, 跳 = Math.abs(Math.sin(t * 4)) * 40;
+  if (三D.ok) { 三D.畫勝利(); ctx.fillStyle = 'rgba(10,8,18,.15)'; ctx.fillRect(0, 0, W, H); }
+  else {
+  畫場地(選場, 時間);
+  ctx.fillStyle = 'rgba(10,8,18,.45)'; ctx.fillRect(0, 0, W, H);
+  const g = ctx.createRadialGradient(W / 2, 300, 10, W / 2, 300, 220);
+  g.addColorStop(0, 'rgba(255,230,120,.5)'); g.addColorStop(1, 'rgba(255,230,120,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(W / 2, 300); ctx.rotate(t * 0.6);
+  for (let k = 0; k < 12; k++) { ctx.rotate(Math.PI / 6); ctx.fillStyle = 'rgba(255,220,100,.12)'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-30, -400); ctx.lineTo(30, -400); ctx.fill(); }
+  ctx.restore();
+  畫劍士(選P, 選色, W / 2, 420 - 跳, 2.2, Math.sin(t * 2) > 0 ? 1 : -1, 'win', 0);
+  }
+  彩帶.forEach(c => 字(c.s, c.x + Math.sin(t * 2 + c.r) * 20, c.y, 22));
+  const s = Math.min(1, t * 3);
+  字('🏆 勝利!', W / 2, 80, 70 * s + 1, '#ffd23a', 'center', 'bold', 10);
+  字(劍士們[選P].名 + '打贏了 ' + 劍士們[選E].名 + '!', W / 2, 140, 24, '#fff', 'center', 'bold', 5);
+  if (t > 0.8) 提示('👆 點一下畫面或按 J 繼續');
+}
+function 畫解鎖() {
+  const i = 解鎖佇列[0], d = 劍士們[i], t = 場景時間;
+  ctx.fillStyle = '#0d0a14'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(W / 2, 290); ctx.rotate(t * 0.8);
+  for (let k = 0; k < 16; k++) { ctx.rotate(Math.PI / 8); ctx.fillStyle = k % 2 ? d.衣 : '#ffffff'; ctx.globalAlpha = 0.12; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-40, -500); ctx.lineTo(40, -500); ctx.fill(); }
+  ctx.restore(); ctx.globalAlpha = 1;
+  for (let k = 0; k < 12; k++) { const ang = t * 2 + k * Math.PI / 6, r = 150 + Math.sin(t * 3 + k) * 20; 字(d.符, W / 2 + Math.cos(ang) * r, 270 + Math.sin(ang) * r * 0.6, 26); }
+  const s = Math.min(1, t * 1.2);
+  if (t < 0.5) { ctx.fillStyle = 'rgba(255,255,255,' + (1 - t * 2) + ')'; ctx.fillRect(0, 0, W, H); }
+  畫劍士(i, 0, W / 2, 380, 2.2 * s + 0.01, 1, t > 1 ? 'win' : 'idle', 0);
+  字('🔓 新劍士解鎖!', W / 2, 52, 36, '#f5b335', 'center', 'bold', 6);
+  if (t > 0.9) 字(d.符 + ' ' + d.名, W / 2, 420, 38, '#fff', 'center', 'bold', 6);
+  if (t > 1.5) 字('大絕招:' + d.絕, W / 2, 458, 22, '#ffd27a', 'center', 'bold', 4);
+  if (t > 1) 提示('👆 點一下畫面或按 J 繼續');
+}
+function 畫結果() {
+  if (結果.贏) 畫場地(選場, 時間); else { const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#1e2236'); g.addColorStop(1, '#0d0f18'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  ctx.fillStyle = 'rgba(10,8,18,.6)'; ctx.fillRect(0, 0, W, H);
+  字(結果.贏 ? '🏆 你贏了!' : '💪 再接再厲!', W / 2, 70, 52, 結果.贏 ? '#ffd23a' : '#8fd3ff', 'center', 'bold', 8);
+  字('比數 ' + 結果.p + ' : ' + 結果.e, W / 2, 125, 24, '#fff', 'center', 'bold', 4);
+  畫劍士(選P, 選色, W / 2 - 150, 330, 1.5, 1, 結果.贏 ? 'win' : 'hit', 0);
+  畫劍士(選E, 選E === 選P ? (選色 + 1) % 變色.length : 0, W / 2 + 150, 330, 1.5, -1, 結果.贏 ? 'hit' : 'win', 0);
+  字('VS', W / 2, 260, 30, '#f5b335', 'center', 'bold', 5);
+  if (結果.新 >= 0) 字('🔓 解鎖了 ' + 劍士們[結果.新].符 + 劍士們[結果.新].名 + '!', W / 2, 160, 18, '#7ad84a', 'center', 'bold', 4);
+  else if (!結果.贏) 字('小祕訣:看到對手揮劍就按 L 防禦,再反擊!', W / 2, 160, 16, '#ddd', 'center', 'normal', 3);
+  字('🔑 你的密碼:' + 產生密碼() + '(記下來,下次可以拿回進度)', W / 2, 375, 15, '#ffd27a', 'center', 'bold', 3);
+  按鈕(60, 404, 210, 52, '🔁 再打一次', 開始比賽, { 主: true });
+  按鈕(295, 404, 210, 52, '👥 換劍士', () => 換場景('pickP'));
+  按鈕(530, 404, 210, 52, '🏠 回標題', () => 換場景('title'));
+  提示(用過鍵盤 ? 'J 再打一次 · L 換劍士' : '👆 點按鈕選擇');
+}
+
+// ===================== 鍵盤操作選單 =====================
+function 選單鍵盤() {
+  const 確 = pressed.j || pressed[' '] || pressed.Enter, 退 = pressed.l || pressed.Escape;
+  if (scene === 'title') { if (確) 換場景('pickP'); return; }
+  if (scene === 'pickP' || scene === 'pickE') {
+    if (pressed.a) 游標 = Math.max(0, 游標 - 1);
+    const 一排 = Math.ceil(劍士們.length / 2), 最後 = 劍士們.length - 1;
+    if (pressed.d) 游標 = Math.min(最後, 游標 + 1);
+    if (pressed.w) 游標 = Math.max(0, 游標 - 一排);
+    if (pressed.s) 游標 = Math.min(最後, 游標 + 一排);
+    if (scene === 'pickP' && pressed.c) 選色 = (選色 + 1) % 顏色數;
+  }
+  if (scene === 'pickStage' || scene === 'pickDiff' || scene === 'adPick') {
+    const n = scene === 'pickStage' ? 場地們.length : scene === 'pickDiff' ? 3 : 2;
+    if (pressed.a) 游標 = Math.max(0, 游標 - 1);
+    if (pressed.d) 游標 = Math.min(n - 1, 游標 + 1);
+    if (scene === 'pickStage' && pressed.w) 游標 = Math.max(0, 游標 - 3);
+    if (scene === 'pickStage' && pressed.s) 游標 = Math.min(n - 1, 游標 + 3);
+  }
+  if (scene === 'adPick' && 確) {
+    if (游標 === 0 && 解鎖數 < 解鎖上限) 開始廣告('unlock');
+    else if (游標 === 1 && 顏色數 < SETTINGS.顏色最多) 開始廣告('color');
+    else 吐司('這個已經全部拿到了!');
+    return;
+  }
+  if (['pickP', 'pickE', 'pickStage', 'pickDiff'].indexOf(scene) >= 0 && 確) { 確定選擇(); return; }
+  if (['pickP', 'pickE', 'pickStage', 'pickDiff', 'adPick'].indexOf(scene) >= 0 && 退) { 返回(); return; }
+  if (scene === 'code') {
+    for (let n = 0; n <= 9; n++) if (pressed['' + n]) 密碼按('' + n);
+    if (pressed.Backspace) 密碼按('⌫');
+    if (pressed.Enter) 密碼按('✔');
+    if (pressed.Escape) 返回();
+  }
+  if (scene === 'ad' && 廣告.t >= SETTINGS.廣告秒數 && 確) 領取獎勵();
+  if (scene === 'victory' && 場景時間 > 0.8 && 確) 勝利動畫結束();
+  if (scene === 'unlockAnim' && 場景時間 > 1 && 確) 解鎖動畫結束();
+  if (scene === 'result' && 場景時間 > 0.3) { if (確) 開始比賽(); else if (退) 換場景('pickP'); }
+}
+
+// ===================== 主迴圈 =====================
+function 更新(dt) {
+  時間 += dt; 場景時間 += dt;
+  if (toast.t > 0) toast.t -= dt;
+  if (scene === 'fight') 更新戰鬥(dt);
+  else {
+    if (scene === 'ad') {
+      廣告.t += dt;
+      const 拍 = Math.floor(廣告.t * 4);
+      if (廣告.t < SETTINGS.廣告秒數 && 拍 !== 廣告拍) { 廣告拍 = 拍; 嗶(廣告曲[拍 % 廣告曲.length], 0.18, 'triangle', 0.05); }
+    }
+    if (scene === 'victory') 彩帶.forEach(c => { c.y += c.v * dt; if (c.y > H + 20) c.y = -20; });
+    選單鍵盤();
+  }
+  pressed = {};
+}
+function 畫() {
+  btns = [];
+  ctx.clearRect(0, 0, W, H);
+  if (scene === 'title') 畫標題();
+  else if (scene === 'pickP') 畫選角();
+  else if (scene === 'pickE') 畫選對手();
+  else if (scene === 'pickStage') 畫選場地();
+  else if (scene === 'pickDiff') 畫選難度();
+  else if (scene === 'fight') 畫戰鬥();
+  else if (scene === 'adPick') 畫廣告選擇();
+  else if (scene === 'ad') 畫廣告();
+  else if (scene === 'code') 畫密碼();
+  else if (scene === 'victory') 畫勝利();
+  else if (scene === 'unlockAnim') 畫解鎖();
+  else if (scene === 'result') 畫結果();
+  if (toast.t > 0) {
+    ctx.globalAlpha = Math.min(1, toast.t * 3);
+    ctx.fillStyle = 'rgba(0,0,0,.8)'; 圓角(W / 2 - 200, 64, 400, 40, 12); ctx.fill();
+    字(toast.text, W / 2, 84, 17, '#fff'); ctx.globalAlpha = 1;
+  }
+  三D.顯示(scene === 'fight' || scene === 'victory');
+  const 要按鈕 = scene === 'fight';
+  if (pad.hidden === 要按鈕) pad.hidden = !要按鈕;
+}
+let 上次 = 0, 幀dt = 1 / 60;
+function loop(now) {
+  const dt = Math.min(0.033, Math.max(0, (now - (上次 || now)) / 1000));
+  幀dt = dt || 1 / 60;
+  上次 = now;
+  更新(dt); 畫();
+  requestAnimationFrame(loop);
+}
+取得焦點();
+requestAnimationFrame(loop);
+</script>
+
+</body></html>
