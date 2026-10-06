@@ -1,0 +1,1119 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>台灣棒球大冒險</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;900&display=swap">
+<style>
+/* 版面:像球場記分板一樣的深綠底,遊戲畫面置中,從上往下排 */
+:root {
+  --bg: #0e2a21;        /* 記分板深綠 */
+  --panel: #163b2e;
+  --fg: #f4efdf;        /* 記分板白字 */
+  --muted: #a7c3b3;
+  --accent: #ffb02e;    /* 記分板燈泡橘 */
+  --font: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font); }
+.wrap { max-width: 820px; margin: 0 auto; padding: 8px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+h1 { margin: 0; font-weight: 900; font-size: clamp(22px, 4.2vw, 30px); letter-spacing: .06em; text-wrap: balance; text-align: center; }
+h1 span { color: var(--accent); }
+canvas { display: block; width: 100%; max-width: 800px; height: auto; aspect-ratio: 800 / 540; border-radius: 10px; border: 3px solid var(--panel); touch-action: none; outline: none; background: #0b1f18; }
+canvas:focus-visible { border-color: var(--accent); }
+.tip { margin: 0; color: var(--muted); font-size: 14px; text-align: center; line-height: 1.6; }
+.tip b { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <h1>⚾ 台灣棒球大冒險 <span>3D</span></h1>
+  <canvas id="cv" width="800" height="540" tabindex="0" aria-label="台灣棒球大冒險遊戲畫面"></canvas>
+  <p class="tip">🏏 打擊:<b>⬅️ ➡️ ⬆️ ⬇️</b> 移動球棒(WASD 也可以)・<b>空白鍵</b> 揮棒・滑鼠瞄準、點一下揮棒<br>🎯 投手:<b>⬅️ ➡️</b> 選球種・<b>空白鍵</b> 開始力量條,綠色時再按一次投球<br>🧤 外野手:<b>點草地</b> 跑過去(方向鍵也可以),跑到球的影子那裡接球</p>
+</div>
+
+<script>
+// ================================================================
+//  台灣棒球大冒險 3D —— 所有可以調整的數字都在這裡
+// ================================================================
+const SETTINGS = {
+  // 五個球場(照順序玩),每個球場的天空、看台、全壘打牆、草地顏色
+  球場: [
+    { 名稱: '台北大巨蛋',     天空: ['#20232b', '#3b404c'], 看台: '#5b4a73', 牆: '#1d4e89', 草: ['#2f8f46', '#38a052'], 樣式: '巨蛋' },
+    { 名稱: '新莊棒球場',     天空: ['#5fb6ef', '#cdeefd'], 看台: '#b8483e', 牆: '#17603a', 草: ['#3a9a4a', '#45ac57'], 樣式: '白雲' },
+    { 名稱: '台中洲際棒球場', 天空: ['#2f8de0', '#a5dbff'], 看台: '#c9ced6', 牆: '#0f3d68', 草: ['#339447', '#40a854'], 樣式: '太陽' },
+    { 名稱: '高雄澄清湖棒球場', 天空: ['#e9774a', '#ffd79c'], 看台: '#7b4c8e', 牆: '#0e5a6b', 草: ['#2e8a45', '#3a9c52'], 樣式: '夕陽' },
+    { 名稱: '天母棒球場',     天空: ['#070b26', '#232c66'], 看台: '#2c3159', 牆: '#1b3a5c', 草: ['#23733b', '#2c8647'], 樣式: '夜晚' },
+  ],
+  每場出局數: 3,          // 3 個出局換下一個球場
+  三振好球數: 3,          // 揮空 3 次 = 三振
+  // 三種球:時間 = 從投手到本壘幾秒;曲 = 轉彎多少(英尺);拋 = 往上拋多高(英尺)
+  球種: [
+    { 名: '快速球', 圖: '💨', 時間: 0.75, 曲: 0,   拋: 0.1 },
+    { 名: '變化球', 圖: '↪️', 時間: 1.05, 曲: 1.0, 拋: 0.4 },
+    { 名: '慢速球', 圖: '🐢', 時間: 1.5,  曲: 0,   拋: 1.4 },
+  ],
+  判定時間: 0.17,         // 寬鬆:比球到的時間早或晚 0.17 秒內都算打到
+  判定距離: 0.85,         // 寬鬆:球棒圈圈離球 0.85 英尺內都算打到(圈圈就是這麼大)
+  球棒速度: 3.0,          // 方向鍵移動球棒的速度(英尺/秒)
+  接殺範圍: { 內野: 22, 外野: 48 },   // 球落在守備員多近(英尺)會被接殺
+  投球間隔: 1.1,          // 每一球之間等幾秒
+  // 投手模式
+  投手: {
+    力量條秒: 0.7,        // 力量條從一邊跑到另一邊要幾秒
+    完美範圍: 0.05,       // 綠色正中間多寬算「完美」
+    電腦最會打: 0.85,     // 力量條按很爛時,電腦打者打到球的機會
+    電腦最不會打: 0.25,   // 力量條按完美時,電腦打者打到球的機會
+    球種難打: { 快速球: 0, 變化球: -0.08, 慢速球: 0.06 },   // 變化球比較難打、慢速球比較好打
+  },
+  // 外野手模式
+  外野: {
+    跑速: 75,             // 中外野手跑多快(英尺/秒),很快!
+    接球範圍: 14,         // 球落地時,離中外野手幾英尺內算接到
+    飛行秒: 3.2,          // 飛向外野的球在空中飛幾秒
+    三振機率: 1 / 3,      // 每 3 個打者大約 1 個被投手三振
+    滾地機率: 0.25,       // 打到內野、讓隊友接的機會
+    全壘打機率: 0.08,     // 直接飛出全壘打牆的機會
+  },
+  電腦球衣: { 名: '灰色', 色: '#9aa3ad', 深: '#59616b' },
+  球衣: [
+    { 名: '黃色', 色: '#f5c518', 深: '#b58d00' },
+    { 名: '紅色', 色: '#e23b3b', 深: '#9c1f1f' },
+    { 名: '綠色', 色: '#2fb36b', 深: '#1b7444' },
+    { 名: '藍色', 色: '#2f7de1', 深: '#1b4f99' },
+    { 名: '橘色', 色: '#ff8a1f', 深: '#b85a00' },
+  ],
+};
+const S = SETTINGS;
+const 字體 = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif';
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+// ---------------- 3D 投影:攝影機站在本壘後面 ----------------
+// x = 左右(英尺,右邊是正)、y = 往前多遠(英尺,本壘是 0)、h = 離地多高(英尺)
+// 打擊、投手模式:攝影機在本壘後面、跟打者一樣高
+const CAM預設 = { 後退: 38, 高: 7, 焦距: 1927, 地平線: 150, 中: W / 2, 橫: 1, 收窄: true, 看台頂: 70, 觀眾: [74, 148], 天空: 160 };
+// 外野手模式:攝影機一樣在本壘後面,只是升高,外野看得比較清楚
+const CAM外野 = { 後退: 300, 高: 120, 焦距: 1675, 地平線: -150, 中: W / 2, 橫: 0.8, 收窄: false, 看台頂: 34, 觀眾: [38, 120], 天空: 40 };
+const CAM = Object.assign({}, CAM預設);
+function 設定攝影機(模式) { Object.assign(CAM, 模式 === 'field' ? CAM外野 : CAM預設); }
+function 投影(x, y, h) {
+  const D = Math.max(2, y + CAM.後退);
+  const 廣 = CAM.收窄 && D > CAM.後退 ? 1 / (1 + (D - CAM.後退) / 40) : 1;   // 遠的地方左右收窄,整個球場才看得到
+  return { x: CAM.中 + CAM.焦距 * CAM.橫 * x / D * 廣, y: CAM.地平線 + CAM.焦距 * (CAM.高 - h) / D, s: CAM.焦距 / D };
+}
+// 螢幕座標 → 本壘上方的位置(滑鼠瞄準用)
+function 反投影(sx, sy) {
+  const D = CAM.後退;
+  return { x: (sx - CAM.中) * D / CAM.焦距, h: CAM.高 - (sy - CAM.地平線) * D / CAM.焦距 };
+}
+// 螢幕座標 → 草地上的位置(外野手模式點草地用)
+function 地面反投影(sx, sy) {
+  if (sy <= CAM.地平線 + 2) return null;
+  const D = CAM.焦距 * CAM.高 / (sy - CAM.地平線);
+  const 廣 = CAM.收窄 && D > CAM.後退 ? 1 / (1 + (D - CAM.後退) / 40) : 1;
+  return { x: (sx - CAM.中) * D / (CAM.焦距 * CAM.橫 * 廣), y: D - CAM.後退 };
+}
+function 全壘打牆(角) { return 400 - 70 * Math.abs(角) / 45; }   // 中間 400 英尺,兩邊 330 英尺
+function 亂(a, b) { return a + Math.random() * (b - a); }
+function 夾(v, a, b) { return Math.max(a, Math.min(b, v)); }
+const 棒範圍 = { x1: -1.7, x2: 1.7, h1: 0.9, h2: 4.3 };
+
+// 九個守備員的站位(捕手蹲在本壘後面)
+const 守備位置 = [
+  { 名: '投手', x: 0, y: 60.5, 內: true },
+  { 名: '一壘', x: 70, y: 85, 內: true },
+  { 名: '二壘', x: 35, y: 140, 內: true },
+  { 名: '游擊', x: -35, y: 140, 內: true },
+  { 名: '三壘', x: -70, y: 85, 內: true },
+  { 名: '左外野', x: -170, y: 250, 內: false },
+  { 名: '中外野', x: 0, y: 310, 內: false },
+  { 名: '右外野', x: 170, y: 250, 內: false },
+];
+
+// 看台上的觀眾小點(先算好,畫面才不會閃)
+const 觀眾 = [];
+for (let i = 0; i < 520; i++) 觀眾.push({ u: Math.random(), v: Math.random(), c: ['#ffffff', '#ffd23f', '#ff6b6b', '#6bc5ff', '#ffffff'][i % 5] });
+const 星星 = [];
+for (let i = 0; i < 70; i++) 星星.push({ x: Math.random() * W, y: Math.random() * 60, r: Math.random() * 1.4 + 0.4 });
+
+// ---------------- 音效(用 Web Audio 現場做出來,不用下載檔案) ----------------
+let 音 = null;
+function 開聲音() {
+  // 瀏覽器規定要先點一下或按一下才能出聲音
+  try {
+    if (!音) 音 = new (window.AudioContext || window.webkitAudioContext)();
+    if (音.state === 'suspended') 音.resume();
+  } catch (e) { 音 = null; }
+}
+function 噪音聲(秒, 濾波, 頻率, Q, 音量, 起音, 頻率終) {
+  const t = 音.currentTime, n = Math.floor(音.sampleRate * 秒);
+  const buf = 音.createBuffer(1, n, 音.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = 音.createBufferSource(); src.buffer = buf;
+  const f = 音.createBiquadFilter(); f.type = 濾波; f.frequency.setValueAtTime(頻率, t); f.Q.value = Q;
+  if (頻率終) f.frequency.exponentialRampToValueAtTime(頻率終, t + 秒);
+  const g = 音.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(音量, t + (起音 || 0.005));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 秒);
+  src.connect(f); f.connect(g); g.connect(音.destination);
+  src.start(t); src.stop(t + 秒 + 0.05);
+}
+function 音調(類型, 頻1, 頻2, 秒, 音量) {
+  const t = 音.currentTime, o = 音.createOscillator(), g = 音.createGain();
+  o.type = 類型; o.frequency.setValueAtTime(頻1, t); o.frequency.exponentialRampToValueAtTime(頻2, t + 秒);
+  g.gain.setValueAtTime(音量, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 秒);
+  o.connect(g); g.connect(音.destination); o.start(t); o.stop(t + 秒 + 0.05);
+}
+function 音效(名) {
+  if (!音) return;
+  try {
+    if (名 === '咻') 噪音聲(0.28, 'bandpass', 500, 1.2, 0.25, 0.08, 1800);          // 揮棒
+    if (名 === '鏗') { 噪音聲(0.12, 'bandpass', 2600, 2, 0.9); 音調('triangle', 1250, 600, 0.18, 0.45); }   // 打到球
+    if (名 === '啪') { 噪音聲(0.07, 'lowpass', 1400, 0.8, 0.9); 音調('sine', 220, 90, 0.08, 0.5); }       // 球進手套
+    if (名 === '歡呼') { 噪音聲(1.8, 'bandpass', 1100, 0.6, 0.35, 0.35); 噪音聲(1.5, 'bandpass', 2400, 0.9, 0.15, 0.3); }  // 觀眾歡呼
+  } catch (e) {}
+}
+
+// ---------------- 遊戲狀態(全部放在 G 裡,重玩時整個換新) ----------------
+let 選擇球衣 = 0;
+let 選擇模式 = 'bat';   // bat = 打擊模式、pitch = 投手模式
+let G;
+function 新遊戲() {
+  G = {
+    畫面: 'title',          // title / playing / end
+    模式: 'bat',            // bat 打擊 / pitch 投手
+    選球種: 0, 力量: 0, 力量時: 0,
+    跑點: null, 這打者三振: false,
+    階段: 'intro',          // intro / windup / pitch / flight / result / stadiumEnd
+    計時: 0,
+    球場: 0,
+    出局: 0, 好球: 0,
+    本場分: S.球場.map(() => 0), 總分: 0,
+    跑者: [],               // 每個跑者 { 位, 目標 }:0 本壘、1 一壘、2 二壘、3 三壘、4 回到本壘
+    棒: { x: 0, h: 2.5 },   // 球棒瞄準的位置
+    揮棒計時: 0,
+    球: null,               // 投出來的球
+    飛球: null,             // 打出去的球
+    守備: 守備位置.map(p => ({ x: p.x, y: p.y })),
+    訊息: '', 小訊息: '', 訊息計時: 0,
+    投手動作: 0,
+    慶祝: { 時: 0, 水: [], 隊友: [] },
+    總時: 0,
+  };
+}
+新遊戲();
+
+function 開始比賽(模式) {
+  if (模式) 選擇模式 = 模式;
+  新遊戲();
+  G.模式 = 選擇模式;
+  G.畫面 = 'playing';
+  進入球場(0);
+}
+function 進入球場(i) {
+  G.球場 = i; G.出局 = 0; G.好球 = 0; G.跑者 = []; G.球 = null; G.飛球 = null;
+  G.守備 = 守備位置.map(p => ({ x: p.x, y: p.y }));
+  G.階段 = 'intro'; G.計時 = 2.2;
+}
+function 顯示訊息(大, 小) { G.訊息 = 大; G.小訊息 = 小 || ''; G.訊息計時 = 1.6; }
+
+// ---------------- 投球 ----------------
+function 投球() {
+  const 種 = S.球種[Math.floor(Math.random() * S.球種.length)];
+  G.球 = {
+    種, 時間: 種.時間, t: 0,
+    rx: 0.6, rh: 5.8,                          // 投手出手的位置
+    tx: 亂(-1.0, 1.0), th: 亂(1.5, 3.5),       // 最後飛到本壘的位置
+    曲: 種.曲 * (Math.random() < 0.5 ? -1 : 1),
+    揮過: false, 落空: false,
+  };
+  // 外野手模式:電腦打者自己打,有時候被投手三振
+  if (G.模式 === 'field') {
+    if (G.好球 === 0) G.這打者三振 = Math.random() < S.外野.三振機率;
+    const 三振 = G.這打者三振, p = G.球;
+    p.落空 = 三振;
+    p.電腦 = {
+      碰到: !三振, q: 0,
+      揮時: p.時間 - 0.12 + (三振 ? (Math.random() < 0.5 ? -0.25 : 0.2) : 0),
+      瞄: { x: p.tx + (三振 ? 亂(-0.8, 0.8) : 0), h: p.th + (三振 ? 0.7 : 0) },
+      已揮: false,
+    };
+  }
+  G.階段 = 'pitch';
+}
+// ---------------- 投手模式 ----------------
+// 第一次按:力量條開始跑;第二次按:投出去
+function 投手按鍵() {
+  if (G.畫面 !== 'playing' || G.模式 !== 'pitch') return;
+  if (G.階段 === 'choose') { G.階段 = 'power'; G.力量時 = 0; G.力量 = 0; }
+  else if (G.階段 === 'power') 投手投球();
+}
+function 力量準度(v) {
+  // 力量條正中間(0.5)最準,綠色範圍內都算完美
+  return 夾(1 - (Math.abs(v - 0.5) - S.投手.完美範圍) / 0.4, 0, 1);
+}
+function 投手投球() {
+  const a = 力量準度(G.力量);
+  const 種 = S.球種[G.選球種];
+  const 邊 = Math.random() < 0.5 ? -1 : 1, 上下 = Math.random() < 0.5 ? -1 : 1;
+  // 越準 → 越快、越靠近好球帶角落;不準 → 慢一點,而且往正中間跑
+  const tx = 夾(邊 * (0.15 + 0.75 * a) + 亂(-0.3, 0.3) * (1 - a), -1.1, 1.1);
+  const th = 夾(2.5 + 上下 * (0.2 + 0.85 * a) + 亂(-0.3, 0.3) * (1 - a), 1.4, 3.6);
+  const 機會 = 夾(S.投手.電腦最會打 - (S.投手.電腦最會打 - S.投手.電腦最不會打) * a + (S.投手.球種難打[種.名] || 0), 0.05, 0.95);
+  const 碰到 = Math.random() < 機會;
+  const 時間 = 種.時間 * (1.2 - 0.35 * a);
+  G.球 = {
+    種, 時間, t: 0, rx: 0.6, rh: 5.8, tx, th,
+    曲: 種.曲 * (Math.random() < 0.5 ? -1 : 1),
+    揮過: false, 落空: !碰到,
+    電腦: {
+      碰到,
+      q: Math.random() * (1.05 - 0.55 * a) + 0.05,      // 投得越準,被打得越軟
+      揮時: 時間 - 0.12 + (碰到 ? 0 : (Math.random() < 0.5 ? -0.25 : 0.2)),   // 打不到的時候會揮太早或太晚
+      瞄: { x: tx + (碰到 ? 0 : 亂(-0.8, 0.8)), h: th + (碰到 ? 0 : 亂(0.5, 0.9)) },
+      已揮: false,
+    },
+    準度: a,
+  };
+  G.投手動作 = 0;
+  G.階段 = 'pitch';
+  顯示訊息('', a >= 0.95 ? '完美!🔥' : a >= 0.6 ? '不錯!' : '偏掉了…');
+  G.訊息計時 = 0.9;
+}
+
+function 球位置(p) {
+  const t = Math.min(p.t, 1.08);               // 1 = 到本壘,之後停在捕手手套裡
+  const tc = Math.min(t, 1);
+  return {
+    x: p.rx + (p.tx - p.rx) * t + p.曲 * (tc * tc * tc - tc) * 1.6,   // 變化球:中間彎出去,最後轉回來
+    y: 55 * (1 - t),
+    h: p.rh + (p.th - p.rh) * t + p.種.拋 * Math.sin(Math.PI * tc),
+  };
+}
+
+// ---------------- 揮棒 ----------------
+function 揮棒() {
+  if (G.畫面 !== 'playing' || G.揮棒計時 > 0) return;
+  G.揮棒計時 = 0.32;
+  音效('咻');
+  if (G.階段 !== 'pitch' || !G.球 || G.球.揮過) return;
+  const p = G.球;
+  p.揮過 = true;
+  const 早 = (1 - p.t) * p.時間;                       // 正數 = 太早揮,負數 = 太晚揮
+  const 距 = Math.hypot(G.棒.x - p.tx, G.棒.h - p.th);  // 球棒圈圈離球多遠
+  if (Math.abs(早) <= S.判定時間 && 距 <= S.判定距離) 擊中(早, 距, G.棒.h - p.th);
+  else p.落空 = true;
+}
+
+function 擊中(早, 距, 高差) {
+  const 準時 = 1 - Math.abs(早) / S.判定時間;
+  const 準位 = 1 - 距 / S.判定距離;
+  const q = 0.5 * 準時 + 0.5 * 準位;                     // 對越準,球飛越遠
+  const 滾地 = 高差 > 0.35;                               // 球棒在球上面太多 → 滾地球
+  // 太早揮 → 往左邊飛;太晚揮 → 往右邊飛
+  const 角 = 夾(-(早 / S.判定時間) * 35 + 亂(-8, 8), -42, 42);
+  打出去(q, 角, 滾地);
+}
+// 球被打出去:q = 打得多準(0~1)、角 = 往左右幾度、滾地 = 是不是滾地球
+function 打出去(q, 角, 滾地) {
+  音效('鏗');
+  let 遠 = 100 + 330 * q + 亂(-60, 50);
+  if (滾地) 遠 *= 0.45;
+  遠 = Math.max(40, 遠);
+  const 弧 = 角 * Math.PI / 180;
+  const 落 = { x: 遠 * Math.sin(弧), y: 遠 * Math.cos(弧) };
+
+  // 決定結果:全壘打?被接殺?幾壘安打?
+  let 結果, 接球者 = -1;
+  if (!滾地 && 遠 >= 全壘打牆(角)) {
+    結果 = { 類: 'hit', 壘: 4 };
+  } else {
+    let 最近 = Infinity;
+    守備位置.forEach((f, i) => {
+      if (滾地 && !f.內) return;                          // 滾地球只有內野接得到
+      const 範圍 = f.內 ? S.接殺範圍.內野 : S.接殺範圍.外野;
+      const d = Math.hypot(f.x - 落.x, f.y - 落.y);
+      if (d <= 範圍 && d < 最近) { 最近 = d; 接球者 = i; }
+    });
+    if (接球者 >= 0) 結果 = { 類: 'out' };
+    else if (遠 < 220) 結果 = { 類: 'hit', 壘: 1 };
+    else if (遠 < 330) 結果 = { 類: 'hit', 壘: 2 };
+    else 結果 = { 類: 'hit', 壘: 3 };
+  }
+  // 沒被接到時,最近的守備員跑去追球
+  let 追球者 = 接球者;
+  if (追球者 < 0 && 結果.壘 !== 4) {
+    let m = Infinity;
+    守備位置.forEach((f, i) => { const d = Math.hypot(f.x - 落.x, f.y - 落.y); if (d < m) { m = d; 追球者 = i; } });
+  }
+  const 起 = 球位置(G.球);
+  G.飛球 = {
+    起, 角: 弧, 遠, 滾地, 落, 結果, 接球者, 追球者, t: 0,
+    T: 滾地 ? 0.8 + 遠 / 200 : 1.0 + 遠 / 260,
+    頂: 滾地 ? 0 : Math.min(0.12 * 遠, 22),
+  };
+  G.球 = null;
+  G.階段 = 'flight';
+  顯示訊息('鏗!⚾', '');
+  G.訊息計時 = 0.6;
+}
+// 外野手模式:球往中外野飛,讓玩家去接
+function 外野打擊() {
+  if (Math.random() < S.外野.滾地機率) { 打出去(亂(0.2, 1), 亂(-40, 40), true); return; }   // 滾地球,內野隊友處理
+  音效('鏗');
+  const 角 = 亂(-22, 22), 弧 = 角 * Math.PI / 180, 牆 = 全壘打牆(角);
+  const HR = Math.random() < S.外野.全壘打機率;
+  const 遠 = HR ? 牆 + 亂(15, 40) : 亂(235, 牆 - 8);
+  G.飛球 = {
+    起: 球位置(G.球), 角: 弧, 遠, 滾地: false,
+    落: { x: 遠 * Math.sin(弧), y: 遠 * Math.cos(弧) },
+    結果: HR ? { 類: 'hit', 壘: 4 } : null,       // 有沒有接到,等球掉下來才知道
+    接球者: -1, 追球者: -1, t: 0, T: S.外野.飛行秒, 頂: 32, 玩家: true,
+  };
+  G.球 = null;
+  G.階段 = 'flight';
+  顯示訊息('鏗!⚾', HR ? '' : '快跑去球的影子那裡!');
+  G.訊息計時 = 1.0;
+}
+function 飛球位置(f) {
+  const u = Math.min(f.t / f.T, 1);
+  const r = f.遠 * u;
+  const x = f.起.x * (1 - u) + r * Math.sin(f.角);
+  const y = f.起.y * (1 - u) + r * Math.cos(f.角);
+  let h;
+  if (f.滾地) h = Math.abs(Math.sin(u * Math.PI * 3)) * 3 * (1 - u) + f.起.h * Math.max(0, 1 - u * 4);
+  else if (!f.結果) h = f.起.h * (1 - u) + 4 * f.頂 * u * (1 - u) + 4 * u;           // 外野手模式:還不知道接不接得到
+  else if (f.結果.壘 === 4) h = f.起.h + 4 * f.頂 * u * (1 - u) + 12 * u;            // 飛過全壘打牆
+  else if (f.結果.類 === 'out') h = f.起.h * (1 - u) + 5 * u + 4 * f.頂 * u * (1 - u);  // 落進手套
+  else h = f.起.h * (1 - u) + 4 * f.頂 * u * (1 - u);                                 // 落地
+  return { x, y, h };
+}
+
+// ---------------- 結算 ----------------
+function 結算打擊(r) {
+  if (r.類 === 'out') {
+    G.出局++;
+    音效('啪');
+    const 名 = 守備位置[G.飛球.接球者].名;
+    if (G.模式 === 'field' && G.飛球.接球者 === 6) 顯示訊息('你接到了!🧤', '接殺出局,好守備!');
+    else if (G.模式 === 'field') 顯示訊息('隊友接到了!出局 🧤', 名 + '好守備');
+    else if (G.模式 === 'pitch') 顯示訊息('出局!🧤', 名 + '幫你接到了,好守備!');
+    else 顯示訊息(G.飛球.滾地 ? '被接住了!出局' : '接殺出局!🧤', 名 + '接到球了');
+  } else {
+    const n = r.壘;
+    let 分 = 0;
+    G.跑者.forEach(R => { if (R.目標 < 4) { R.目標 = Math.min(4, R.目標 + n); if (R.目標 === 4) 分++; } });
+    G.跑者.push({ 位: 0, 目標: n });
+    if (n === 4) 分++;
+    G.本場分[G.球場] += 分;
+    G.總分 += 分;
+    if (分 > 0) 音效('歡呼');
+    const 名 = ['', '一壘安打!', '二壘安打!', '三壘安打!', '全壘打!!🏠'][n];
+    if (G.模式 !== 'bat') 顯示訊息('被打出' + 名, 分 > 0 ? '對手跑回本壘,失 ' + 分 + ' 分 😣' : '對手上壘了,穩住!');
+    else 顯示訊息(名, 分 > 0 ? '跑回本壘 +' + 分 + ' 分 🏃' : '跑者上壘 🏃');
+  }
+  G.好球 = 0;
+  G.飛球 = null;
+  G.階段 = 'result'; G.計時 = 1.7;
+}
+function 結算好球() {
+  G.好球++;
+  const 投 = G.模式 !== 'bat';
+  const 三振字 = G.模式 === 'field' ? ['投手三振打者!🌀', '隊友投手好厲害'] : 投 ? ['三振!🔥', '你是王牌投手!'] : ['三振出局!🌀', '下一位打者加油'];
+  if (G.好球 >= S.三振好球數) { G.好球 = 0; G.出局++; 顯示訊息(三振字[0], 三振字[1]); }
+  else 顯示訊息(投 ? '打者揮空!' : '揮棒落空!', '好球 ' + G.好球);
+  G.球 = null;
+  G.階段 = 'result'; G.計時 = 1.2;
+}
+function 下一步() {
+  G.守備 = 守備位置.map(p => ({ x: p.x, y: p.y }));
+  G.跑點 = null;
+  if (G.出局 >= S.每場出局數) { G.階段 = 'stadiumEnd'; G.計時 = 2.8; G.訊息計時 = 0; }
+  else if (G.模式 === 'pitch') G.階段 = 'choose';
+  else { G.階段 = 'windup'; G.計時 = S.投球間隔; }
+}
+function 結束比賽() {
+  G.畫面 = 'end';
+  音效('歡呼');
+  G.慶祝 = { 時: 0, 水: [], 隊友: [] };
+  for (let i = 0; i < 6; i++) {
+    const 左 = i % 2 === 0;
+    G.慶祝.隊友.push({ x: 左 ? -40 - i * 30 : W + 40 + i * 30, 目標: W / 2 + (左 ? -1 : 1) * (70 + Math.floor(i / 2) * 55), 左 });
+  }
+}
+
+// ---------------- 每一格更新 ----------------
+const keys = {};
+function update(dt) {
+  G.總時 += dt;
+  if (G.訊息計時 > 0) G.訊息計時 -= dt;
+  if (G.揮棒計時 > 0) G.揮棒計時 = Math.max(0, G.揮棒計時 - dt);
+
+  if (G.畫面 === 'end') { 更新慶祝(dt); return; }
+  if (G.畫面 !== 'playing') return;
+
+  // 方向鍵/WASD 移動球棒(打擊模式)
+  const v = G.模式 === 'bat' ? S.球棒速度 * dt : 0;
+  if (keys.ArrowLeft || keys.a) G.棒.x -= v;
+  if (keys.ArrowRight || keys.d) G.棒.x += v;
+  if (keys.ArrowUp || keys.w) G.棒.h += v;
+  if (keys.ArrowDown || keys.s) G.棒.h -= v;
+  G.棒.x = 夾(G.棒.x, 棒範圍.x1, 棒範圍.x2);
+  G.棒.h = 夾(G.棒.h, 棒範圍.h1, 棒範圍.h2);
+
+  // 外野手模式:中外野手跑向點的地方(或用方向鍵跑)
+  if (G.模式 === 'field' && G.階段 !== 'intro' && G.階段 !== 'stadiumEnd') {
+    const 我 = G.守備[6], sp = S.外野.跑速 * dt;
+    let mx = 0, my = 0;
+    if (keys.ArrowLeft || keys.a) mx--; if (keys.ArrowRight || keys.d) mx++;
+    if (keys.ArrowUp || keys.w) my++; if (keys.ArrowDown || keys.s) my--;
+    if (mx || my) { G.跑點 = null; const L = Math.hypot(mx, my); 我.x += mx / L * sp; 我.y += my / L * sp; }
+    else if (G.跑點) {
+      const dx = G.跑點.x - 我.x, dy = G.跑點.y - 我.y, d = Math.hypot(dx, dy);
+      if (d <= sp) { 我.x = G.跑點.x; 我.y = G.跑點.y; } else { 我.x += dx / d * sp; 我.y += dy / d * sp; }
+    }
+    我.x = 夾(我.x, -230, 230); 我.y = 夾(我.y, 150, 395);
+  }
+  // 跑者往目標壘包跑
+  G.跑者.forEach(R => { if (R.位 < R.目標) R.位 = Math.min(R.目標, R.位 + dt * 2.5); });
+  G.跑者 = G.跑者.filter(R => R.位 < 4);
+
+  switch (G.階段) {
+    case 'intro':
+      G.計時 -= dt;
+      if (G.計時 <= 0) {
+        if (G.模式 === 'pitch') G.階段 = 'choose';
+        else { G.階段 = 'windup'; G.計時 = 0.6; }
+      }
+      break;
+    case 'choose':
+      break;
+    case 'power': {
+      // 力量條來回跑
+      G.力量時 += dt / S.投手.力量條秒;
+      const k = G.力量時 % 2;
+      G.力量 = k < 1 ? k : 2 - k;
+      G.投手動作 = Math.min(1, G.投手動作 + dt * 3);
+      break;
+    }
+    case 'windup':
+      G.計時 -= dt;
+      G.投手動作 = 夾(1 - G.計時 / 0.6, 0, 1);
+      if (G.計時 <= 0) { G.投手動作 = 0; 投球(); }
+      break;
+    case 'pitch': {
+      const p = G.球;
+      p.t += dt / p.時間;
+      // 投手模式:電腦打者揮棒
+      if (p.電腦) {
+        const 電 = p.電腦;
+        G.棒.x = 夾(電.瞄.x, 棒範圍.x1, 棒範圍.x2); G.棒.h = 夾(電.瞄.h, 棒範圍.h1, 棒範圍.h2);
+        if (!電.已揮 && p.t * p.時間 >= 電.揮時) { 電.已揮 = true; p.揮過 = true; G.揮棒計時 = 0.32; 音效('咻'); }
+        if (電.碰到 && p.t >= 1) {
+          if (G.模式 === 'field') 外野打擊();
+          else 打出去(電.q, 亂(-35, 35), Math.random() < 0.35);
+          break;
+        }
+      }
+      // 球進了捕手手套,而且也過了「太晚揮」的時間 → 這一球結束
+      if (p.t >= 1 + (S.判定時間 + 0.12) / p.時間) {
+        if (p.落空) 結算好球();
+        else { G.球 = null; 顯示訊息('', '沒揮棒,等下一球 👀'); G.訊息計時 = 1.0; G.階段 = 'windup'; G.計時 = S.投球間隔; }
+      }
+      break;
+    }
+    case 'flight': {
+      const f = G.飛球;
+      f.t += dt;
+      const u = Math.min(f.t / f.T, 1);
+      // 外野手模式:球掉下來,看中外野手有沒有站在旁邊
+      if (f.玩家 && f.t >= f.T && !f.結果) {
+        const 我 = G.守備[6];
+        if (Math.hypot(我.x - f.落.x, 我.y - f.落.y) <= S.外野.接球範圍) { f.結果 = { 類: 'out' }; f.接球者 = 6; }
+        else f.結果 = { 類: 'hit', 壘: f.遠 < 300 ? 1 : f.遠 < 360 ? 2 : 3 };
+      }
+      // 守備員跑去接球(外野手模式的中外野手由玩家控制)
+      if (f.追球者 >= 0 && !(G.模式 === 'field' && f.追球者 === 6)) {
+        const 家 = 守備位置[f.追球者];
+        const k = f.接球者 >= 0 ? u : u * 0.7;
+        G.守備[f.追球者] = { x: 家.x + (f.落.x - 家.x) * k, y: 家.y + (f.落.y - 家.y) * k };
+      }
+      if (f.t >= f.T + 0.25) 結算打擊(f.結果);
+      break;
+    }
+    case 'result':
+      G.計時 -= dt;
+      if (G.計時 <= 0) 下一步();
+      break;
+    case 'stadiumEnd':
+      G.計時 -= dt;
+      if (G.計時 <= 0) {
+        if (G.球場 < S.球場.length - 1) 進入球場(G.球場 + 1);
+        else 結束比賽();
+      }
+      break;
+  }
+}
+function 更新慶祝(dt) {
+  const c = G.慶祝;
+  c.時 += dt;
+  c.隊友.forEach(t => {
+    t.x += (t.目標 - t.x) * Math.min(1, dt * 2.2);
+    // 跑到了就把水往中間灑
+    if (Math.abs(t.x - t.目標) < 12 && Math.random() < dt * 22) {
+      c.水.push({ x: t.x, y: 400, vx: (W / 2 - t.x) * 0.9 + 亂(-30, 30), vy: 亂(-330, -240), 命: 1.4 });
+    }
+  });
+  c.水.forEach(d => { d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 420 * dt; d.命 -= dt; });
+  c.水 = c.水.filter(d => d.命 > 0 && d.y < H);
+}
+
+// ================================================================
+//  畫畫
+// ================================================================
+function 畫球場背景(st) {
+  // 天空
+  const g = ctx.createLinearGradient(0, 0, 0, CAM.天空);
+  g.addColorStop(0, st.天空[0]); g.addColorStop(1, st.天空[1]);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, CAM.天空);
+  if (st.樣式 === '巨蛋') {
+    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 2;
+    for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.ellipse(W / 2, 150, 120 + i * 70, 150 - i * 6, 0, Math.PI, 0); ctx.stroke(); }
+    for (let i = 0; i < 14; i++) { ctx.fillStyle = 'rgba(255,250,220,.85)'; ctx.beginPath(); ctx.arc(60 + i * 52, 22 + Math.sin(i) * 6, 3, 0, 7); ctx.fill(); }
+  } else if (st.樣式 === '白雲') {
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    [[130, 40], [430, 28], [650, 50]].forEach(([x, y]) => { for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(x + k * 22, y + (k % 2) * -8, 18, 0, 7); ctx.fill(); } });
+  } else if (st.樣式 === '太陽') {
+    ctx.fillStyle = 'rgba(255,240,150,.35)'; ctx.beginPath(); ctx.arc(680, 40, 42, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff3a8'; ctx.beginPath(); ctx.arc(680, 40, 26, 0, 7); ctx.fill();
+  } else if (st.樣式 === '夕陽') {
+    ctx.fillStyle = 'rgba(255,200,120,.5)'; ctx.beginPath(); ctx.arc(150, 70, 50, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffb35c'; ctx.beginPath(); ctx.arc(150, 70, 32, 0, 7); ctx.fill();
+  } else if (st.樣式 === '夜晚') {
+    星星.forEach(s => { ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); });
+  }
+  // 照明燈塔(大巨蛋有屋頂就不用)
+  if (st.樣式 !== '巨蛋') {
+    [[70, 30], [W - 70, 30]].forEach(([x, y]) => {
+      ctx.fillStyle = '#5b6470'; ctx.fillRect(x - 3, y + 14, 6, 60);
+      ctx.fillStyle = st.樣式 === '夜晚' ? '#fffbe0' : '#dfe6ee'; ctx.fillRect(x - 22, y, 44, 16);
+      if (st.樣式 === '夜晚') { ctx.fillStyle = 'rgba(255,250,210,.18)'; ctx.beginPath(); ctx.arc(x, y + 8, 46, 0, 7); ctx.fill(); }
+    });
+  }
+  // 看台和觀眾
+  const [觀1, 觀2] = CAM.觀眾;
+  ctx.fillStyle = st.看台; ctx.fillRect(0, CAM.看台頂, W, H - CAM.看台頂);
+  ctx.fillStyle = 'rgba(0,0,0,.18)';
+  for (let i = 0; i < 4; i++) ctx.fillRect(0, 觀1 + 4 + i * (觀2 - 觀1) / 4, W, 2);
+  觀眾.forEach(a => { ctx.fillStyle = a.c; ctx.globalAlpha = 0.7; ctx.fillRect(a.u * W, 觀1 + a.v * (觀2 - 觀1), 3, 3); });
+  ctx.globalAlpha = 1;
+  // 草地(全壘打牆以內)+ 割草條紋
+  ctx.save();
+  ctx.beginPath();
+  const 左角 = 投影(-233.3, 233.3, 0), 右角 = 投影(233.3, 233.3, 0);
+  ctx.moveTo(-3000, 左角.y);
+  for (let a = -45; a <= 45; a += 3) { const r = 全壘打牆(a), A = a * Math.PI / 180, p = 投影(r * Math.sin(A), r * Math.cos(A), 0); ctx.lineTo(p.x, p.y); }
+  ctx.lineTo(3000, 右角.y); ctx.lineTo(3000, H + 10); ctx.lineTo(-3000, H + 10); ctx.closePath();
+  ctx.fillStyle = st.草[0]; ctx.fill();
+  ctx.clip();
+  for (let y = -30; y < 420; y += 30) {
+    if (((y + 30) / 30) % 2) continue;
+    const a = 投影(0, y, 0).y, b = 投影(0, y + 30, 0).y;
+    ctx.fillStyle = st.草[1]; ctx.fillRect(0, b, W, a - b);
+  }
+  ctx.restore();
+  // 全壘打牆
+  ctx.beginPath();
+  for (let a = -45; a <= 45; a += 3) { const r = 全壘打牆(a), A = a * Math.PI / 180, p = 投影(r * Math.sin(A), r * Math.cos(A), 10); a === -45 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y); }
+  for (let a = 45; a >= -45; a -= 3) { const r = 全壘打牆(a), A = a * Math.PI / 180, p = 投影(r * Math.sin(A), r * Math.cos(A), 0); ctx.lineTo(p.x, p.y); }
+  ctx.closePath(); ctx.fillStyle = st.牆; ctx.fill();
+  ctx.beginPath();
+  for (let a = -45; a <= 45; a += 3) { const r = 全壘打牆(a), A = a * Math.PI / 180, p = 投影(r * Math.sin(A), r * Math.cos(A), 10); a === -45 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y); }
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2; ctx.stroke();
+  // 內野紅土
+  多邊形([[-8, -14], [8, -14], [118, 92], ...弧點(152, 50, -50).reverse().slice(0), [-118, 92]], '#c98a55');
+  多邊形([[0, 12], [56, 64], [0, 116], [-56, 64]], st.草[1]);
+  // 投手丘、本壘附近的紅土
+  橢圓(0, 60.5, 9, '#c98a55');
+  橢圓(0, 0, 13, '#c98a55');
+  // 界外線
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2;
+  [-45, 45].forEach(a => {
+    const A = a * Math.PI / 180, r = 全壘打牆(a);
+    ctx.beginPath();
+    for (let k = 0; k <= 30; k++) { const p = 投影(r * k / 30 * Math.sin(A), r * k / 30 * Math.cos(A), 0); k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }
+    ctx.stroke();
+  });
+  // 壘包
+  [[63.6, 63.6], [0, 127.3], [-63.6, 63.6]].forEach(([x, y]) => 多邊形([[x, y - 1.3], [x + 1.3, y], [x, y + 1.3], [x - 1.3, y]], '#ffffff'));
+  多邊形([[-0.7, 0.7], [0.7, 0.7], [0.7, 0], [0, -0.7], [-0.7, 0]], '#ffffff');
+}
+function 弧點(r, a1, a2) {
+  const pts = [];
+  for (let a = a2; a <= a1; a += 5) { const A = a * Math.PI / 180; pts.push([r * Math.sin(A), r * Math.cos(A)]); }
+  return pts;
+}
+function 多邊形(pts, color) {
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => {
+    const [nx, ny] = pts[(i + 1) % pts.length];
+    for (let k = 0; k < 10; k++) {   // 每條邊切成小段,遠近收窄時邊才會彎得自然
+      const p = 投影(x + (nx - x) * k / 10, y + (ny - y) * k / 10, 0);
+      (i || k) ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+    }
+  });
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+}
+function 橢圓(x, y, r, color) {
+  const c = 投影(x, y, 0), a = 投影(x, y - r, 0), b = 投影(x, y + r, 0);
+  ctx.beginPath(); ctx.ellipse(c.x, (a.y + b.y) / 2, r * c.s, Math.max(1, (a.y - b.y) / 2), 0, 0, 7);
+  ctx.fillStyle = color; ctx.fill();
+}
+
+// 畫一個人(守備員、投手)
+function 畫人(x, y, 衣, 帽, 動作) {
+  const p = 投影(x, y, 0), s = p.s;
+  const 腳 = p.y, 腰 = p.y - 2.7 * s, 肩 = p.y - 4.6 * s, 頭 = p.y - 5.2 * s;
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(p.x, 腳, 1.1 * s, 0.3 * s, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#e9e9e9';
+  ctx.fillRect(p.x - 0.6 * s, 腰, 0.5 * s, 腳 - 腰); ctx.fillRect(p.x + 0.1 * s, 腰, 0.5 * s, 腳 - 腰);
+  ctx.fillStyle = 衣; ctx.fillRect(p.x - 0.75 * s, 肩, 1.5 * s, 腰 - 肩);
+  // 手臂(投手投球時舉高)
+  ctx.strokeStyle = 衣; ctx.lineWidth = Math.max(1.5, 0.35 * s); ctx.lineCap = 'round';
+  const 舉 = 動作 || 0;
+  ctx.beginPath(); ctx.moveTo(p.x + 0.7 * s, 肩 + 0.2 * s); ctx.lineTo(p.x + (1.1 - 舉 * 0.6) * s, 肩 + (1.3 - 舉 * 3) * s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(p.x - 0.7 * s, 肩 + 0.2 * s); ctx.lineTo(p.x - 1.1 * s, 肩 + 1.2 * s); ctx.stroke();
+  ctx.fillStyle = '#8a5a2b'; ctx.beginPath(); ctx.arc(p.x - 1.15 * s, 肩 + 1.3 * s, Math.max(1.2, 0.3 * s), 0, 7); ctx.fill();
+  ctx.fillStyle = '#f1c9a0'; ctx.beginPath(); ctx.arc(p.x, 頭, 0.45 * s, 0, 7); ctx.fill();
+  ctx.fillStyle = 帽; ctx.beginPath(); ctx.arc(p.x, 頭 - 0.1 * s, 0.47 * s, Math.PI, 0); ctx.fill();
+}
+
+// 畫我們的打者(從背後看,站在本壘左邊)
+function 畫打者(衣) {
+  const 腳 = 投影(-3, 0, 0), s = 腳.s;
+  const 手 = 投影(-2.2, 0, 4.4);
+  const 棒心 = 投影(G.棒.x, 0, G.棒.h);
+  // 身體
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(腳.x, 腳.y, 1.6 * s, 0.35 * s, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f2f2f2';
+  ctx.fillRect(腳.x - 1.0 * s, 腳.y - 2.9 * s, 0.75 * s, 2.9 * s);
+  ctx.fillRect(腳.x + 0.25 * s, 腳.y - 2.9 * s, 0.75 * s, 2.9 * s);
+  ctx.fillStyle = '#222'; ctx.fillRect(腳.x - 1.1 * s, 腳.y - 0.3 * s, 0.9 * s, 0.35 * s); ctx.fillRect(腳.x + 0.2 * s, 腳.y - 0.3 * s, 0.9 * s, 0.35 * s);
+  ctx.fillStyle = 衣.色;
+  ctx.beginPath(); ctx.roundRect(腳.x - 1.1 * s, 腳.y - 5.0 * s, 2.2 * s, 2.3 * s, 0.4 * s); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.font = `900 ${Math.round(1.1 * s)}px ${字體}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('7', 腳.x, 腳.y - 3.9 * s);
+  // 頭盔
+  ctx.fillStyle = 衣.深; ctx.beginPath(); ctx.arc(腳.x, 腳.y - 5.55 * s, 0.62 * s, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(腳.x - 0.2 * s, 腳.y - 5.75 * s, 0.22 * s, 0, 7); ctx.fill();
+  // 手臂伸到握棒的地方
+  ctx.strokeStyle = 衣.色; ctx.lineWidth = 0.42 * s; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(腳.x + 0.8 * s, 腳.y - 4.7 * s); ctx.lineTo(手.x, 手.y); ctx.stroke();
+  // 球棒:平常扛在肩上,揮棒時掃過瞄準的圈圈
+  const 角瞄 = Math.atan2(棒心.y - 手.y, 棒心.x - 手.x);
+  const 長 = Math.max(2.6 * s, Math.hypot(棒心.x - 手.x, 棒心.y - 手.y) + 0.3 * s);
+  let 角 = -2.1;
+  if (G.揮棒計時 > 0) {
+    const k = 1 - G.揮棒計時 / 0.32;
+    角 = k < 0.5 ? -2.1 + (角瞄 + 2.1) * (k / 0.5) : 角瞄 + 1.7 * ((k - 0.5) / 0.5);
+  }
+  const 用長 = G.揮棒計時 > 0 ? 長 : 2.8 * s;
+  ctx.strokeStyle = '#d9a35b'; ctx.lineWidth = 0.32 * s;
+  ctx.beginPath(); ctx.moveTo(手.x, 手.y); ctx.lineTo(手.x + Math.cos(角) * 用長, 手.y + Math.sin(角) * 用長); ctx.stroke();
+  ctx.strokeStyle = '#7a4a1c'; ctx.lineWidth = 0.22 * s;
+  ctx.beginPath(); ctx.moveTo(手.x, 手.y); ctx.lineTo(手.x + Math.cos(角) * 0.6 * s, 手.y + Math.sin(角) * 0.6 * s); ctx.stroke();
+  ctx.fillStyle = '#f1c9a0'; ctx.beginPath(); ctx.arc(手.x, 手.y, 0.25 * s, 0, 7); ctx.fill();
+}
+function 畫捕手() {
+  const p = 投影(0, -3.4, 0), s = p.s;
+  ctx.fillStyle = '#3a3f4a'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 0.4 * s, 1.3 * s, 1.1 * s, 0, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#23262d'; ctx.beginPath(); ctx.arc(p.x, p.y - 1.3 * s, 0.5 * s, Math.PI, 0); ctx.fill();
+}
+function 畫好球帶與球棒圈(要圈) {
+  const a = 投影(-1.2, 0, 3.8), b = 投影(1.2, 0, 1.2);
+  ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+  ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.setLineDash([]);
+  if (!要圈) return;
+  // 球棒圈圈:球在圈圈裡就打得到
+  const c = 投影(G.棒.x, 0, G.棒.h), r = S.判定距離 * c.s;
+  ctx.fillStyle = 'rgba(255,176,46,.16)'; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#ffb02e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(c.x - 8, c.y); ctx.lineTo(c.x + 8, c.y); ctx.moveTo(c.x, c.y - 8); ctx.lineTo(c.x, c.y + 8); ctx.stroke();
+}
+function 畫球(pos, 影子, 大) {
+  const p = 投影(pos.x, pos.y, pos.h), r = Math.max(大 ? 4.5 : 2, 0.25 * p.s);
+  if (影子) { const g = 投影(pos.x, pos.y, 0); ctx.fillStyle = 大 ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(g.x, g.y, r, r * 0.35, 0, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill();
+  if (r > 5) {
+    ctx.strokeStyle = '#d33'; ctx.lineWidth = Math.max(1, r * 0.12);
+    ctx.beginPath(); ctx.arc(p.x - r * 0.9, p.y, r * 0.6, -0.9, 0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x + r * 0.9, p.y, r * 0.6, Math.PI - 0.9, Math.PI + 0.9); ctx.stroke();
+  }
+}
+
+// 投手面板:球種按鈕 + 力量條(畫在右邊)
+const 面板 = { x: 590, y: 300, w: 190 };
+function 球種按鈕位置(i) { return { x: 面板.x, y: 面板.y + i * 46, w: 面板.w, h: 38 }; }
+function 畫投手面板() {
+  const 可選 = G.階段 === 'choose';
+  ctx.fillStyle = 'rgba(8,24,18,.78)'; ctx.beginPath(); ctx.roundRect(面板.x - 12, 面板.y - 34, 面板.w + 24, 236, 14); ctx.fill();
+  文字(可選 ? '選球種(⬅️ ➡️)' : '球種', 面板.x + 面板.w / 2, 面板.y - 16, 14, '#a7c3b3', 'center', 500);
+  S.球種.forEach((種, i) => {
+    const b = 球種按鈕位置(i), 選 = i === G.選球種;
+    ctx.fillStyle = 選 ? '#ffb02e' : 'rgba(255,255,255,.1)';
+    ctx.globalAlpha = 可選 || 選 ? 1 : 0.45;
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill();
+    文字(種.圖 + ' ' + 種.名, b.x + b.w / 2, b.y + b.h / 2 + 1, 17, 選 ? '#1d1300' : '#f4efdf', 'center', 選 ? 900 : 500);
+    ctx.globalAlpha = 1;
+  });
+  // 力量條
+  const bx = 面板.x, by = 面板.y + 146, bw = 面板.w, bh = 22;
+  const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+  g.addColorStop(0, '#e2483d'); g.addColorStop(0.3, '#f5c518'); g.addColorStop(0.5, '#3ccf6e'); g.addColorStop(0.7, '#f5c518'); g.addColorStop(1, '#e2483d');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 8); ctx.fill();
+  const 綠 = S.投手.完美範圍 * bw;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(bx + bw / 2 - 綠, by - 2, 綠 * 2, bh + 4);
+  const v = G.階段 === 'power' ? G.力量 : (G.球 && G.球.準度 !== undefined ? null : 0.5);
+  if (v !== null && G.階段 === 'power') {
+    const x = bx + v * bw;
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(x, by - 4); ctx.lineTo(x - 7, by - 14); ctx.lineTo(x + 7, by - 14); ctx.closePath(); ctx.fill();
+    ctx.fillRect(x - 2, by - 4, 4, bh + 8);
+  }
+  const 說 = G.階段 === 'choose' ? '按空白鍵開始 ▶' : G.階段 === 'power' ? '綠色時再按一次!' : '';
+  if (說) 文字(說, bx + bw / 2, by + bh + 20, 15, '#ffd23f');
+}
+
+function 文字(t, x, y, size, color, align, 粗) {
+  ctx.font = `${粗 || 900} ${size}px ${字體}`; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = color; ctx.fillText(t, x, y);
+}
+function 描邊文字(t, x, y, size, color) {
+  ctx.font = `900 ${size}px ${字體}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = Math.max(4, size / 7); ctx.strokeStyle = 'rgba(10,25,20,.9)'; ctx.lineJoin = 'round';
+  ctx.strokeText(t, x, y); ctx.fillStyle = color; ctx.fillText(t, x, y);
+}
+// 立體字(標題用,做出 3D 的感覺)
+function 立體字(t, x, y, size) {
+  ctx.font = `900 ${size}px ${字體}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let i = 8; i > 0; i--) { ctx.fillStyle = i > 6 ? '#2a1600' : '#a35a00'; ctx.fillText(t, x + i, y + i); }
+  ctx.fillStyle = '#ffd23f'; ctx.fillText(t, x, y);
+}
+
+// 上方記分板
+function 畫記分板() {
+  const st = S.球場[G.球場];
+  ctx.fillStyle = 'rgba(8,24,18,.82)'; ctx.fillRect(0, 0, W, 46);
+  文字('🏟️ ' + st.名稱, 14, 23, 18, '#f4efdf', 'left');
+  文字('第 ' + (G.球場 + 1) + ' / ' + S.球場.length + ' 站', 14 + ctx.measureText('🏟️ ' + st.名稱).width + 12, 24, 14, '#a7c3b3', 'left', 500);
+  const 投 = G.模式 !== 'bat';
+  文字((投 ? '本場失分 ' : '本場 ') + G.本場分[G.球場] + ' 分', 470, 16, 14, '#a7c3b3', 'center', 500);
+  文字((投 ? '總失分 ' : '總分 ') + G.總分, 470, 34, 18, '#ffb02e');
+  // 出局和好球燈
+  文字('好球', 568, 15, 12, '#a7c3b3', 'left', 500);
+  文字('出局', 568, 33, 12, '#a7c3b3', 'left', 500);
+  for (let i = 0; i < S.三振好球數 - 1; i++) { ctx.fillStyle = i < G.好球 ? '#ffd23f' : 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.arc(608 + i * 16, 15, 5.5, 0, 7); ctx.fill(); }
+  for (let i = 0; i < S.每場出局數 - 1; i++) { ctx.fillStyle = i < G.出局 ? '#ff5a4f' : 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.arc(608 + i * 16, 33, 5.5, 0, 7); ctx.fill(); }
+  // 小鑽石:壘上的跑者
+  const cx = 735, cy = 25, d = 15;
+  const 壘點 = [[cx, cy + d], [cx + d, cy], [cx, cy - d], [cx - d, cy], [cx, cy + d]];
+  ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.5; ctx.beginPath();
+  壘點.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
+  for (let b = 1; b <= 3; b++) {
+    const 有人 = G.跑者.some(R => R.位 === b && R.目標 === b);
+    const [x, y] = 壘點[b];
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = 有人 ? '#ffd23f' : 'rgba(255,255,255,.2)'; ctx.fillRect(-5, -5, 10, 10); ctx.restore();
+  }
+  const 衣 = 投 ? S.電腦球衣 : S.球衣[選擇球衣];
+  G.跑者.forEach(R => {
+    if (R.位 === R.目標) return;
+    const i = Math.floor(R.位), k = R.位 - i, a = 壘點[i], b = 壘點[Math.min(4, i + 1)];
+    ctx.fillStyle = 衣.色; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, 4.5, 0, 7); ctx.fill(); ctx.stroke();
+  });
+}
+
+function 畫提示() {
+  ctx.fillStyle = 'rgba(8,24,18,.7)'; ctx.fillRect(0, H - 30, W, 30);
+  const 投 = G.模式 === 'pitch';
+  const t = G.模式 === 'field' ? (用過鍵盤 ? '⬅️ ➡️ ⬆️ ⬇️ 跑步,跑到球的影子那裡就接得到!'
+                                         : '👆 點一下草地,中外野手就跑過去!跑到球的影子那裡接球')
+        : 投 ? (用過鍵盤 ? '⬅️ ➡️ 選球種,空白鍵開始力量條,跑到綠色再按一次投球!'
+                         : '👆 鍵盤沒反應?點右邊選球種,再點畫面兩下:開始力量條、投球')
+               : (用過鍵盤 ? '⬅️ ➡️ ⬆️ ⬇️ 移動球棒圈圈,球進圈圈時按空白鍵揮棒!'
+                         : '👆 鍵盤沒反應?先點一下畫面,或直接用滑鼠瞄準、點一下揮棒');
+  文字(t, W / 2, H - 15, 14, '#f4efdf', 'center', 500);
+}
+
+function 畫遊戲() {
+  const st = S.球場[G.球場];
+  畫球場背景(st);
+  const 衣 = S.球衣[選擇球衣];
+  const 投 = G.模式 === 'pitch', 外 = G.模式 === 'field';
+  const 守衣 = G.模式 !== 'bat' ? 衣 : { 色: '#cfd5dd', 深: '#4b5563' };   // 投手、外野手模式:守備的是你的球隊
+  // 外野手模式:點的地方畫一個 X
+  if (外 && G.跑點) {
+    const p = 投影(G.跑點.x, G.跑點.y, 0);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.moveTo(p.x - 7, p.y - 4); ctx.lineTo(p.x + 7, p.y + 4); ctx.moveTo(p.x + 7, p.y - 4); ctx.lineTo(p.x - 7, p.y + 4); ctx.stroke();
+  }
+  // 守備員(遠的先畫)
+  const 順序 = G.守備.map((p, i) => ({ p, i })).sort((a, b) => b.p.y - a.p.y);
+  順序.forEach(({ p, i }) => 畫人(p.x, p.y, 守衣.色, 守衣.深, i === 0 ? G.投手動作 : 0));
+  // 打出去的球
+  if (G.飛球) 畫球(飛球位置(G.飛球), true, 外);
+  // 投出來的球:還沒過本壘的畫在捕手前面
+  const 球 = G.球 ? 球位置(G.球) : null;
+  if (球 && 球.y < 0) 畫球(球, false);
+  if (外) {
+    // 攝影機在高處:打者和捕手都變小小的
+    畫人(-3, 0, S.電腦球衣.色, S.電腦球衣.深, 0);
+    畫人(0, -4, '#3a3f4a', '#23262d', 0);
+    if (球) 畫球(球, false);
+    // 「你」的標記
+    const 我 = 投影(G.守備[6].x, G.守備[6].y, 0), 跳 = Math.sin(G.總時 * 6) * 3;
+    ctx.fillStyle = '#ffd23f'; ctx.beginPath();
+    ctx.moveTo(我.x, 我.y - 6.4 * 我.s - 4 + 跳); ctx.lineTo(我.x - 8, 我.y - 6.4 * 我.s - 16 + 跳); ctx.lineTo(我.x + 8, 我.y - 6.4 * 我.s - 16 + 跳); ctx.closePath(); ctx.fill();
+    描邊文字('你', 我.x, 我.y - 6.4 * 我.s - 28 + 跳, 16, '#ffd23f');
+  } else {
+    畫捕手();
+    畫好球帶與球棒圈(!投);
+    if (球 && 球.y >= 0) 畫球(球, false);
+    畫打者(投 ? S.電腦球衣 : 衣);
+    if (投) 畫投手面板();
+  }
+  畫記分板();
+  // 球種
+  if (G.球) 描邊文字(G.球.種.名 + ' ' + G.球.種.圖, W / 2, 70, 22, '#ffffff');
+  // 進球場的標題
+  if (G.階段 === 'intro') {
+    ctx.fillStyle = 'rgba(8,24,18,.75)'; ctx.fillRect(0, 190, W, 130);
+    文字('第 ' + (G.球場 + 1) + ' 站', W / 2, 220, 18, '#a7c3b3', 'center', 500);
+    立體字(st.名稱, W / 2, 262, 44);
+    文字(({ bat: '🏏 打擊模式:打滿 ', pitch: '🎯 投手模式:抓到 ', field: '🧤 外野手模式:抓到 ' })[G.模式] + S.每場出局數 + ' 個出局就換下一站', W / 2, 302, 15, '#f4efdf', 'center', 500);
+  }
+  if (G.階段 === 'stadiumEnd') {
+    ctx.fillStyle = 'rgba(8,24,18,.8)'; ctx.fillRect(0, 180, W, 150);
+    文字(st.名稱 + ' 結束!', W / 2, 212, 24, '#f4efdf');
+    立體字((G.模式 !== 'bat' ? '這一站失 ' : '這一站得 ') + G.本場分[G.球場] + ' 分', W / 2, 256, 40);
+    const 下 = S.球場[G.球場 + 1];
+    文字(下 ? '🚄 下一站:' + 下.名稱 : '🏆 五個球場都打完了!', W / 2, 302, 17, '#ffb02e');
+  }
+  // 結果訊息
+  if (G.訊息計時 > 0 && G.階段 !== 'intro' && G.階段 !== 'stadiumEnd') {
+    const a = Math.min(1, G.訊息計時 / 0.3);
+    ctx.globalAlpha = a;
+    if (G.訊息) 描邊文字(G.訊息, W / 2, 140, 46, '#ffd23f');
+    if (G.小訊息) 描邊文字(G.小訊息, W / 2, 186, 22, '#ffffff');
+    ctx.globalAlpha = 1;
+  }
+  畫提示();
+}
+
+// 標題畫面:選球衣
+const 球衣位置 = S.球衣.map((_, i) => ({ x: W / 2 + (i - 2) * 110, y: 300 }));
+const 模式按鈕 = [
+  { 模式: 'bat', 字: '🏏 打擊模式', x: W / 2 - 360, y: 405, w: 225, h: 54 },
+  { 模式: 'pitch', 字: '🎯 投手模式', x: W / 2 - 112, y: 405, w: 225, h: 54 },
+  { 模式: 'field', 字: '🧤 外野手模式', x: W / 2 + 135, y: 405, w: 225, h: 54 },
+];
+const 模式順序 = ['bat', 'pitch', 'field'];
+function 點到(b, pt) { return pt.x >= b.x && pt.x <= b.x + b.w && pt.y >= b.y && pt.y <= b.y + b.h; }
+function 畫球衣(x, y, 衣, 大) {
+  const k = 大 ? 1.15 : 1;
+  ctx.save(); ctx.translate(x, y); ctx.scale(k, k);
+  ctx.beginPath();
+  ctx.moveTo(-14, -30); ctx.lineTo(-38, -18); ctx.lineTo(-30, 0); ctx.lineTo(-22, -4); ctx.lineTo(-22, 30);
+  ctx.lineTo(22, 30); ctx.lineTo(22, -4); ctx.lineTo(30, 0); ctx.lineTo(38, -18); ctx.lineTo(14, -30);
+  ctx.quadraticCurveTo(0, -20, -14, -30); ctx.closePath();
+  ctx.fillStyle = 衣.色; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = 衣.深; ctx.stroke();
+  文字('7', 0, 6, 22, '#ffffff');
+  ctx.restore();
+}
+function 畫標題() {
+  畫球場背景(S.球場[1]);
+  ctx.fillStyle = 'rgba(8,24,18,.72)'; ctx.fillRect(0, 0, W, H);
+  立體字('台灣棒球大冒險', W / 2, 92, 62);
+  文字('3D', W / 2 + 250, 52, 28, '#ff8a1f');
+  文字('🇹🇼 環島五大球場打擊挑戰', W / 2, 152, 20, '#f4efdf', 'center', 500);
+  文字('大巨蛋 → 新莊 → 台中洲際 → 澄清湖 → 天母', W / 2, 184, 15, '#a7c3b3', 'center', 500);
+  文字('選你的球衣顏色 👕', W / 2, 228, 18, '#ffb02e');
+  S.球衣.forEach((衣, i) => {
+    const p = 球衣位置[i], 選 = i === 選擇球衣;
+    if (選) { ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 4; ctx.beginPath(); ctx.roundRect(p.x - 50, p.y - 46, 100, 112, 14); ctx.stroke(); }
+    畫球衣(p.x, p.y, 衣, 選);
+    文字(衣.名, p.x, p.y + 50, 15, 選 ? '#ffd23f' : '#f4efdf', 'center', 選 ? 900 : 500);
+  });
+  // 選模式 = 開始按鈕
+  文字('選模式就開始比賽 ⚾', W / 2, 388, 15, '#a7c3b3', 'center', 500);
+  const 閃 = 0.8 + 0.2 * Math.sin(G.總時 * 4);
+  模式按鈕.forEach(b => {
+    const 選 = b.模式 === 選擇模式;
+    ctx.globalAlpha = 選 ? 閃 : 1;
+    ctx.fillStyle = 選 ? '#ffb02e' : 'rgba(255,255,255,.12)';
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 27); ctx.fill();
+    ctx.globalAlpha = 1;
+    文字(b.字, b.x + b.w / 2, b.y + b.h / 2 + 1, 21, 選 ? '#1d1300' : '#f4efdf');
+  });
+  文字(({ bat: '揮空 3 次三振、被接殺就出局・跑者回本壘得 1 分', pitch: '用力量條投球,讓電腦打者揮空,失分越少越厲害', field: '當中外野手,點草地跑過去接高飛球,失分越少越厲害' })[選擇模式], W / 2, 482, 14, '#a7c3b3', 'center', 500);
+  ctx.fillStyle = 'rgba(8,24,18,.7)'; ctx.fillRect(0, H - 30, W, 30);
+  文字(用過鍵盤 ? '⬅️ ➡️ 換球衣・⬆️ ⬇️ 換模式・空白鍵開始' : '👆 點球衣換顏色,點「打擊模式」或「投手模式」開始!', W / 2, H - 15, 14, '#f4efdf', 'center', 500);
+}
+
+// 結束畫面:全隊衝出來灑水慶祝
+function 畫結束() {
+  畫球場背景(S.球場[4]);
+  ctx.fillStyle = 'rgba(8,24,18,.55)'; ctx.fillRect(0, 0, W, H);
+  const 衣 = S.球衣[選擇球衣], c = G.慶祝;
+  // 中間的英雄打者 + 跑過來的隊友
+  畫小人(W / 2, 420, 衣, 1.25, Math.sin(c.時 * 8) * 6);
+  c.隊友.forEach((t, i) => 畫小人(t.x, 420, 衣, 1, Math.abs(Math.sin(c.時 * 10 + i)) * -10, t.左));
+  // 水花
+  c.水.forEach(d => { ctx.fillStyle = `rgba(120,200,255,${Math.min(1, d.命)})`; ctx.beginPath(); ctx.arc(d.x, d.y, 4, 0, 7); ctx.fill(); });
+  立體字('🏆 環島完成!', W / 2, 62, 46);
+  文字('全隊衝出來灑水慶祝 💦', W / 2, 108, 18, '#f4efdf', 'center', 500);
+  立體字((G.模式 !== 'bat' ? '總失分 ' : '總分 ') + G.總分 + ' 分', W / 2, 160, 50);
+  if (G.模式 !== 'bat') 文字('失分越少越厲害!', W / 2, 192, 14, '#a7c3b3', 'center', 500);
+  // 每一站的分數
+  S.球場.forEach((st, i) => {
+    const x = 90 + i * 155;
+    ctx.fillStyle = 'rgba(8,24,18,.8)'; ctx.beginPath(); ctx.roundRect(x - 68, 210, 136, 60, 10); ctx.fill();
+    文字(st.名稱.replace('棒球場', ''), x, 228, 13, '#a7c3b3', 'center', 500);
+    文字(G.本場分[i] + ' 分', x, 253, 20, '#ffd23f');
+  });
+  if (c.時 > 1.5) {
+    ctx.fillStyle = '#ffb02e'; ctx.beginPath(); ctx.roundRect(W / 2 - 110, 470, 220, 44, 22); ctx.fill();
+    文字('🔄 再玩一次', W / 2, 493, 20, '#1d1300');
+  }
+}
+function 畫小人(x, y, 衣, k, 跳, 左) {
+  ctx.save(); ctx.translate(x, y + (跳 || 0)); ctx.scale(k, k);
+  ctx.fillStyle = '#f2f2f2'; ctx.fillRect(-10, -10, 8, 30); ctx.fillRect(2, -10, 8, 30);
+  ctx.fillStyle = 衣.色; ctx.beginPath(); ctx.roundRect(-14, -46, 28, 38, 6); ctx.fill();
+  ctx.fillStyle = '#f1c9a0'; ctx.beginPath(); ctx.arc(0, -56, 10, 0, 7); ctx.fill();
+  ctx.fillStyle = 衣.深; ctx.beginPath(); ctx.arc(0, -58, 10.5, Math.PI, 0); ctx.fill();
+  if (左 !== undefined) {
+    // 拿著水桶
+    const d = 左 ? 1 : -1;
+    ctx.fillStyle = '#5aa9e6'; ctx.fillRect(d * 14, -50, d * 14, 14);
+  } else {
+    ctx.strokeStyle = 衣.色; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-12, -42); ctx.lineTo(-22, -66); ctx.moveTo(12, -42); ctx.lineTo(22, -66); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function draw() {
+  設定攝影機(G.畫面 === 'playing' ? G.模式 : 'bat');
+  ctx.clearRect(0, 0, W, H);
+  if (G.畫面 === 'title') 畫標題();
+  else if (G.畫面 === 'playing') 畫遊戲();
+  else 畫結束();
+}
+
+// ================================================================
+//  操作:鍵盤(用 e.code,中文輸入法也能用)+ 滑鼠/觸控
+// ================================================================
+let 用過鍵盤 = false;
+function 取得焦點() { try { window.focus(); cv.focus(); } catch (e) {} }
+function 鍵名(e) {
+  const c = e.code || '';
+  if (c.indexOf('Key') === 0) return c.slice(3).toLowerCase();   // KeyD → 'd'
+  if (c === 'Space') return ' ';
+  if (c === 'Enter' || c === 'NumpadEnter') return 'Enter';
+  if (c.indexOf('Arrow') === 0) return c;
+  if (c.indexOf('Digit') === 0) return c.slice(5);              // Digit1 → '1'
+  const k = e.key || '';
+  return k.length === 1 ? k.toLowerCase() : k;                   // 沒有 code 的舊瀏覽器
+}
+const 遊戲鍵 = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'a', 'd', 'w', 's', ' ', 'Enter', '1', '2', '3'];
+window.addEventListener('keydown', e => {
+  const k = 鍵名(e);
+  if (遊戲鍵.indexOf(k) < 0) return;
+  e.preventDefault(); 用過鍵盤 = true; 開聲音();
+  keys[k] = true;
+  if (e.repeat) return;
+  if (G.畫面 === 'title') {
+    if (k === 'ArrowLeft' || k === 'a') 選擇球衣 = (選擇球衣 + S.球衣.length - 1) % S.球衣.length;
+    if (k === 'ArrowRight' || k === 'd') 選擇球衣 = (選擇球衣 + 1) % S.球衣.length;
+    if (k === 'ArrowUp' || k === 'w') 選擇模式 = 模式順序[(模式順序.indexOf(選擇模式) + 2) % 3];
+    if (k === 'ArrowDown' || k === 's') 選擇模式 = 模式順序[(模式順序.indexOf(選擇模式) + 1) % 3];
+    if (k === ' ' || k === 'Enter') 開始比賽();
+  } else if (G.畫面 === 'playing') {
+    if (G.模式 === 'pitch') {
+      if (G.階段 === 'choose') {
+        if (k === 'ArrowLeft' || k === 'a' || k === 'ArrowUp' || k === 'w') G.選球種 = (G.選球種 + S.球種.length - 1) % S.球種.length;
+        if (k === 'ArrowRight' || k === 'd' || k === 'ArrowDown' || k === 's') G.選球種 = (G.選球種 + 1) % S.球種.length;
+        if (k === '1' || k === '2' || k === '3') G.選球種 = Number(k) - 1;
+      }
+      if (k === ' ' || k === 'Enter') 投手按鍵();
+    } else if (k === ' ') 揮棒();
+  } else if (G.畫面 === 'end') {
+    if ((k === ' ' || k === 'Enter') && G.慶祝.時 > 1.5) 回標題();
+  }
+});
+window.addEventListener('keyup', e => { keys[鍵名(e)] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+function 畫面座標(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+function 瞄準到(pt) {
+  const q = 反投影(pt.x, pt.y);
+  G.棒.x = 夾(q.x, 棒範圍.x1, 棒範圍.x2);
+  G.棒.h = 夾(q.h, 棒範圍.h1, 棒範圍.h2);
+}
+function 回標題() { 新遊戲(); }
+cv.addEventListener('pointerdown', e => {
+  取得焦點(); 開聲音();
+  const pt = 畫面座標(e);
+  if (G.畫面 === 'title') {
+    const i = 球衣位置.findIndex(p => Math.abs(pt.x - p.x) < 50 && Math.abs(pt.y - p.y) < 60);
+    if (i >= 0) { 選擇球衣 = i; return; }
+    const b = 模式按鈕.find(b => 點到(b, pt));
+    開始比賽(b ? b.模式 : undefined); return;
+  }
+  if (G.畫面 === 'end') { if (G.慶祝.時 > 1.5) 回標題(); return; }
+  // 外野手模式:點草地,中外野手跑過去
+  if (G.模式 === 'field') {
+    設定攝影機('field');
+    const q = 地面反投影(pt.x, pt.y);
+    if (q) G.跑點 = { x: 夾(q.x, -230, 230), y: 夾(q.y, 150, 395) };
+    return;
+  }
+  // 投手模式:點球種按鈕選球種,點其他地方 = 空白鍵
+  if (G.模式 === 'pitch') {
+    if (G.階段 === 'choose') {
+      const i = S.球種.findIndex((_, j) => 點到(球種按鈕位置(j), pt));
+      if (i >= 0) { G.選球種 = i; return; }
+    }
+    投手按鍵(); return;
+  }
+  // 比賽中:點一下 = 揮棒(觸控會先把圈圈移到點的地方)
+  if (e.pointerType !== 'mouse') 瞄準到(pt);
+  揮棒();
+});
+cv.addEventListener('pointermove', e => {
+  if (G.畫面 !== 'playing' || G.模式 !== 'bat' || e.pointerType !== 'mouse') return;
+  瞄準到(畫面座標(e));
+});
+window.addEventListener('pointerdown', 取得焦點);
+取得焦點();
+
+// ---------------- 主迴圈(只啟動一次) ----------------
+let 上次 = 0;
+function loop(ts) {
+  const dt = 上次 ? Math.min(0.05, (ts - 上次) / 1000) : 0;
+  上次 = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+
+</body></html>
