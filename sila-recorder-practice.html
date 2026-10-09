@@ -1,0 +1,463 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Si La 直笛練習譜</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Music&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&display=swap">
+<style>
+  /* 版面:單欄直式練習簿 — 抬頭 → 指法卡 → 五段譜 → 吹奏提醒 */
+  :root{
+    --paper:#F5F7FA; --card:#FFFFFF; --ink:#1B2333; --muted:#5E6879;
+    --rule:#C3CCDA; --edge:#DEE4EC;
+    --si:#B23A6B; --la:#0E7C7B;
+    --font-display:"Noto Serif TC","Songti TC",serif;
+    --font-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --font-music:"Noto Music",serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#131821; --card:#1B222D; --ink:#E9EDF3; --muted:#98A3B4;
+      --rule:#3C4756; --edge:#2B333F;
+      --si:#F294B6; --la:#5FD6CE;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#131821; --card:#1B222D; --ink:#E9EDF3; --muted:#98A3B4;
+    --rule:#3C4756; --edge:#2B333F;
+    --si:#F294B6; --la:#5FD6CE;
+    color-scheme:dark;
+  }
+
+  body{background:var(--paper);color:var(--ink);font-family:var(--font-body);line-height:1.7;}
+  .wrap{max-width:780px;margin:0 auto;padding-block:32px 56px;padding-left:20px;padding-right:20px;
+        display:flex;flex-direction:column;gap:30px;}
+
+  /* 抬頭 */
+  .head{display:flex;flex-direction:column;gap:12px;}
+  h1{font-family:var(--font-display);font-size:clamp(28px,6vw,40px);font-weight:700;margin:0;
+     letter-spacing:.02em;text-wrap:balance;}
+  .sub{margin:0;color:var(--muted);font-size:15px;}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;}
+  .chip{display:inline-flex;align-items:center;gap:8px;border:1.5px solid var(--edge);
+        background:var(--card);border-radius:999px;padding:7px 15px 7px 11px;font-size:14px;cursor:pointer;
+        font-family:inherit;color:var(--ink);}
+  .chip:hover{border-color:currentColor;}
+  .chip .dot{width:13px;height:13px;border-radius:50%;flex:none;}
+  .chip b{font-weight:700;letter-spacing:.04em;}
+  .chip small{color:var(--muted);font-size:12.5px;}
+  .chip:focus-visible,button:focus-visible{outline:2.5px solid var(--si);outline-offset:2px;}
+
+  /* 指法卡 */
+  .fingers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+  .fcard{background:var(--card);border:1.5px solid var(--edge);border-radius:14px;
+         padding:18px 14px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .fcard h3{margin:0;font-family:var(--font-display);font-size:20px;letter-spacing:.06em;}
+  .fcard p{margin:0;font-size:13px;color:var(--muted);text-align:center;}
+
+  /* 練習段落 */
+  .ex{display:flex;flex-direction:column;gap:10px;}
+  .ex-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  h2{font-family:var(--font-display);font-size:19px;margin:0;font-weight:600;}
+  h2 span{color:var(--muted);font-weight:600;font-size:15px;margin-left:8px;}
+  .play{border:1.5px solid var(--edge);background:var(--card);color:var(--ink);font-family:inherit;
+        font-size:13.5px;border-radius:999px;padding:5px 14px;cursor:pointer;white-space:nowrap;}
+  .play:hover{border-color:var(--si);}
+  .play[data-on="1"]{background:var(--si);border-color:var(--si);color:var(--card);}
+  .staves{background:var(--card);border:1.5px solid var(--edge);border-radius:14px;
+          padding:8px 6px 4px;display:flex;flex-direction:column;gap:2px;}
+  .staves svg{display:block;width:100%;height:auto;max-width:100%;}
+  .hint{margin:0;font-size:13.5px;color:var(--muted);}
+  .nh{cursor:pointer;}
+  .nh ellipse,.nh rect{transition:opacity .12s;}
+  .nh.on ellipse,.nh.on rect{opacity:1;}
+  .dim{opacity:.32;}
+
+  /* 提醒 */
+  .tips{background:var(--card);border:1.5px solid var(--edge);border-radius:14px;padding:18px 20px;}
+  .tips h2{margin-bottom:8px;}
+  .tips ul{margin:0;padding-left:1.15em;display:flex;flex-direction:column;gap:6px;font-size:14.5px;}
+  footer{color:var(--muted);font-size:13px;text-align:center;}
+
+  /* 錄音繳交 */
+  .rec{background:var(--card);border:1.5px solid var(--edge);border-radius:14px;
+       padding:18px 20px;display:flex;flex-direction:column;gap:16px;}
+  .steps{margin:8px 0 0;padding-left:1.2em;font-size:14px;color:var(--muted);
+         display:flex;flex-direction:column;gap:4px;}
+  .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;}
+  label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);min-width:0;}
+  input[type=text],select,input[type=file],textarea{font-family:inherit;font-size:14px;color:var(--ink);
+    background:var(--paper);border:1.5px solid var(--edge);border-radius:9px;padding:9px 11px;
+    width:100%;box-sizing:border-box;}
+  textarea{resize:vertical;min-height:56px;}
+  .btn{border:1.5px solid var(--edge);background:var(--card);color:var(--ink);font-family:inherit;
+       font-size:13.5px;border-radius:999px;padding:6px 15px;cursor:pointer;white-space:nowrap;}
+  .btn:hover{border-color:var(--si);}
+  .btn.primary{background:var(--si);border-color:var(--si);color:var(--card);font-weight:500;}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .btn:focus-visible{outline:2.5px solid var(--si);outline-offset:2px;}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .sub-list{display:flex;flex-direction:column;gap:10px;}
+  .item{border:1.5px solid var(--edge);border-radius:12px;padding:13px 14px;
+        display:flex;flex-direction:column;gap:9px;}
+  .item-top{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;}
+  .who{font-weight:700;}
+  .when{color:var(--muted);font-size:12.5px;margin-left:auto;font-variant-numeric:tabular-nums;}
+  .tag{font-size:12px;border-radius:999px;padding:2px 10px;border:1.5px solid var(--edge);color:var(--muted);}
+  .tag.ok{color:var(--la);border-color:var(--la);}
+  .tag.again{color:var(--si);border-color:var(--si);}
+  .fb{font-size:13.5px;border-left:3px solid var(--edge);padding-left:10px;color:var(--ink);}
+  .empty{text-align:center;color:var(--muted);font-size:14px;padding:26px 12px;
+         border:1.5px dashed var(--edge);border-radius:12px;}
+  .note{font-size:13px;color:var(--muted);}
+  audio{width:100%;margin-top:2px;}
+
+  /* 檢核表 */
+  .check{background:var(--card);border:1.5px solid var(--edge);border-radius:14px;
+         padding:18px 20px;display:flex;flex-direction:column;gap:14px;}
+  .ck-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .ck-count{margin-left:auto;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .ck-rows{display:flex;flex-direction:column;gap:12px;}
+  .ck-row{display:flex;flex-direction:column;gap:8px;border-top:1.5px solid var(--edge);padding-top:12px;}
+  .ck-row:first-child{border-top:none;padding-top:0;}
+  .ck-name{font-size:14.5px;font-weight:500;}
+  .ck-items{display:flex;gap:8px;flex-wrap:wrap;}
+  .ck{display:inline-flex;align-items:center;gap:8px;border:1.5px solid var(--edge);
+      border-radius:999px;padding:6px 14px 6px 9px;font-size:13px;cursor:pointer;
+      color:var(--muted);background:var(--paper);}
+  .ck input{position:absolute;opacity:0;width:0;height:0;}
+  .ck .box{width:17px;height:17px;border:1.5px solid var(--rule);border-radius:5px;flex:none;
+           display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;color:transparent;}
+  .ck.on{color:var(--la);border-color:var(--la);}
+  .ck.on .box{background:var(--la);border-color:var(--la);color:var(--card);}
+  .ck.on .box::after{content:"\2713";}
+  .ck:has(input:focus-visible){outline:2.5px solid var(--si);outline-offset:2px;}
+  .ck-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .btn{border:1.5px solid var(--edge);background:var(--card);color:var(--ink);font-family:inherit;
+       font-size:13.5px;border-radius:999px;padding:6px 15px;cursor:pointer;white-space:nowrap;}
+  .btn:hover{border-color:var(--si);}
+  .btn:focus-visible{outline:2.5px solid var(--si);outline-offset:2px;}
+  .note{font-size:13px;color:var(--muted);}
+
+  @media (max-width:430px){
+    .fingers{grid-template-columns:1fr;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none!important;}
+  }
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <h1>Si · La 直笛練習譜</h1>
+    <p class="sub">高音直笛入門 · 全部只用兩個音 · 四四拍 · ♩= 84</p>
+    <div class="legend">
+      <button class="chip" data-pitch="B"><span class="dot" style="background:var(--si)"></span><b>Si</b><small>第 7 音 · B</small></button>
+      <button class="chip" data-pitch="A"><span class="dot" style="background:var(--la)"></span><b>La</b><small>第 6 音 · A</small></button>
+      <span class="chip" style="cursor:default"><small>點音符可以聽聲音</small></span>
+    </div>
+  </header>
+
+  <section class="fingers">
+    <div class="fcard">
+      <h3 style="color:var(--si)">Si</h3>
+      <div id="fg-B"></div>
+      <p>左手拇指 + 食指<br>其他手指全部放開</p>
+    </div>
+    <div class="fcard">
+      <h3 style="color:var(--la)">La</h3>
+      <div id="fg-A"></div>
+      <p>左手拇指 + 食指 + 中指<br>比 Si 多蓋一個洞</p>
+    </div>
+  </section>
+
+  <div id="exercises"></div>
+
+  <section class="check">
+    <div class="ck-head">
+      <h2>練習檢核表</h2>
+      <span class="ck-count" id="ck-count"></span>
+    </div>
+    <div class="ck-rows" id="ck-rows"></div>
+    <div class="ck-foot">
+      <button class="btn" id="ck-reset">全部清除</button>
+      <span class="note" id="ck-msg">每一段都要三個都打勾,才算真的會了。</span>
+    </div>
+  </section>
+
+  <section class="tips">
+    <h2>吹奏小提醒</h2>
+    <ul>
+      <li>吹的時候像在輕輕說「兔 ——」,氣要慢慢送,不要用力吹。</li>
+      <li>手指要把洞<strong>完全蓋住</strong>,蓋歪了會變成「噓 ——」的漏氣聲。</li>
+      <li>Si 換 La 只要多放一根中指下去,其他手指不要動。</li>
+      <li>黑色的音符(♩)吹 1 拍,白色的音符吹 2 拍,最胖的那個吹 4 拍。</li>
+      <li>先用嘴巴念「Si Si La La」打拍子,念順了再拿起笛子吹。</li>
+    </ul>
+  </section>
+
+  <footer>一拍一拍慢慢來,吹穩比吹快重要 🎵</footer>
+</div>
+
+<script>
+/* ---------- 譜面資料:[音高, 拍數] ---------- */
+const B=p=>p; // 可讀性用
+const EXERCISES=[
+  { title:'一、認識兩個音',
+    hint:'先把 Si 吹滿一小節,再換 La。換音時只動中指,其他手指別跑掉。',
+    bars:[ [['B',1],['B',1],['B',1],['B',1]],
+           [['A',1],['A',1],['A',1],['A',1]],
+           [['B',1],['B',1],['A',1],['A',1]],
+           [['B',4]] ] },
+  { title:'二、長音練習',
+    hint:'白色的音符要吹滿 2 拍,最後一顆吹 4 拍。心裡數「1、2、3、4」。',
+    bars:[ [['B',2],['A',2]],
+           [['A',2],['B',2]],
+           [['B',1],['B',1],['A',1],['A',1]],
+           [['A',4]] ] },
+  { title:'三、跳來跳去',
+    hint:'每一拍都要換音,中指要輕輕地、快快地上下。',
+    bars:[ [['B',1],['A',1],['B',1],['A',1]],
+           [['A',1],['B',1],['A',1],['B',1]],
+           [['B',1],['A',1],['A',2]],
+           [['B',4]] ] },
+  { title:'四、小小對話',
+    hint:'前兩小節像在問問題,後兩小節像在回答。試著吹出一問一答的感覺。',
+    bars:[ [['B',1],['B',1],['A',1],['B',1]],
+           [['A',1],['A',1],['B',2]],
+           [['B',1],['A',1],['B',1],['A',1]],
+           [['B',4]] ] },
+  { title:'五、小曲〈下課鐘〉',
+    hint:'八小節的小曲子。吹完它,你就用兩個音完成一首歌了!',
+    bars:[ [['B',1],['B',1],['A',1],['B',1]],
+           [['A',2],['B',2]],
+           [['B',1],['A',1],['B',1],['A',1]],
+           [['B',4]],
+           [['A',1],['A',1],['B',1],['A',1]],
+           [['B',2],['A',2]],
+           [['B',1],['A',1],['A',1],['B',1]],
+           [['B',4]] ] }
+];
+
+const FREQ={B:987.77, A:880.00};   // 高音直笛實際發音:B5 / A5
+const NAME={B:'Si', A:'La'};
+const COL ={B:'var(--si)', A:'var(--la)'};
+const BPM=84, BEAT=32, BARW=128;
+
+/* ---------- 指法圖 ---------- */
+function fingering(pitch){
+  const closed = pitch==='B' ? [1] : [1,2];          // 前面要蓋住的孔
+  const ys=[22,42,62, 90,108,126,144];
+  let s=`<svg viewBox="0 0 96 168" width="96" height="168" role="img" aria-label="${NAME[pitch]} 指法">`;
+  // 拇指孔
+  s+=`<circle cx="20" cy="22" r="8" fill="var(--ink)" stroke="var(--ink)" stroke-width="1.6"/>`;
+  s+=`<text x="20" y="44" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="var(--font-body)">拇</text>`;
+  // 左右手標示
+  s+=`<text x="76" y="46" text-anchor="start" font-size="11" fill="var(--muted)" font-family="var(--font-body)">左</text>`;
+  s+=`<text x="76" y="114" text-anchor="start" font-size="11" fill="var(--muted)" font-family="var(--font-body)">右</text>`;
+  // 笛身
+  s+=`<rect x="36" y="8" width="28" height="152" rx="13" fill="none" stroke="var(--edge)" stroke-width="1.6"/>`;
+  ys.forEach((y,i)=>{
+    const on=closed.includes(i+1);
+    s+=`<circle cx="50" cy="${y}" r="7.5" fill="${on?'var(--ink)':'none'}" stroke="var(--ink)" stroke-width="1.6"/>`;
+  });
+  s+=`</svg>`;
+  return s;
+}
+document.getElementById('fg-B').innerHTML=fingering('B');
+document.getElementById('fg-A').innerHTML=fingering('A');
+
+/* ---------- 畫五線譜 ---------- */
+const LINES=[30,42,54,66,78];
+const CY={B:54, A:60};   // Si 在第三線上,La 在它下面的間
+
+function drawRow(bars, startIndex, withTime, isLast){
+  const W = 58 + bars.length*BARW + 22;
+  let s=`<svg viewBox="0 0 ${W} 108" preserveAspectRatio="xMidYMid meet">`;
+  LINES.forEach(y=>{ s+=`<line x1="8" x2="${W-8}" y1="${y}" y2="${y}" stroke="var(--rule)" stroke-width="1.2"/>`; });
+  // 高音譜記號(SMuFL:字級 = 一個五線譜高度,基線落在 G 線)
+  s+=`<text x="14" y="66" font-family="var(--font-music)" font-size="48" fill="var(--ink)">\u{1D11E}</text>`;
+  if(withTime){
+    s+=`<text x="40" y="47" text-anchor="middle" font-size="22" font-weight="700" fill="var(--ink)" font-family="var(--font-display)">4</text>`;
+    s+=`<text x="40" y="71" text-anchor="middle" font-size="22" font-weight="700" fill="var(--ink)" font-family="var(--font-display)">4</text>`;
+  }
+  let x=58, idx=startIndex;
+  bars.forEach((bar,bi)=>{
+    let cur=x;
+    bar.forEach(([p,d])=>{
+      const cx=cur+d*BEAT/2, cy=CY[p], c=COL[p], open=d>=2;
+      s+=`<g class="nh" data-i="${idx}" data-p="${p}">`;
+      s+=`<ellipse cx="${cx}" cy="${cy}" rx="6.6" ry="5.1" transform="rotate(-18 ${cx} ${cy})"
+            fill="${open?'var(--card)':c}" stroke="${c}" stroke-width="${open?2.2:1}"/>`;
+      if(d<4) s+=`<rect x="${cx+4.9}" y="${cy-31}" width="1.9" height="31" rx="0.9" fill="${c}"/>`;
+      s+=`<text x="${cx}" y="17" text-anchor="middle" font-size="11" fill="${c}" font-family="var(--font-body)" font-weight="500">${NAME[p]}</text>`;
+      s+=`<circle cx="${cx}" cy="${cy}" r="15" fill="transparent"/></g>`;
+      cur+=d*BEAT; idx++;
+    });
+    x+=BARW;
+    const last = isLast && bi===bars.length-1;
+    if(last){
+      s+=`<line x1="${x-6}" x2="${x-6}" y1="30" y2="78" stroke="var(--rule)" stroke-width="1.4"/>`;
+      s+=`<rect x="${x-3}" y="30" width="4" height="48" fill="var(--ink)"/>`;
+    }else{
+      s+=`<line x1="${x}" x2="${x}" y1="30" y2="78" stroke="var(--rule)" stroke-width="1.4"/>`;
+    }
+  });
+  s+=`</svg>`;
+  return s;
+}
+
+function renderAll(){
+  const perRow = window.innerWidth < 540 ? 2 : 4;
+  const host=document.getElementById('exercises');
+  host.innerHTML='';
+  host.style.display='flex'; host.style.flexDirection='column'; host.style.gap='30px';
+
+  EXERCISES.forEach((ex,ei)=>{
+    const sec=document.createElement('section'); sec.className='ex';
+    const totalBeats = ex.bars.flat().length;
+    sec.innerHTML=`<div class="ex-top">
+        <h2>${ex.title}<span>${ex.bars.length} 小節</span></h2>
+        <button class="play" data-ex="${ei}">▶ 播放</button>
+      </div>
+      <div class="staves" id="st-${ei}"></div>
+      <p class="hint">${ex.hint}</p>`;
+    host.appendChild(sec);
+
+    const box=sec.querySelector('#st-'+ei);
+    let html='', idx=0;
+    for(let i=0;i<ex.bars.length;i+=perRow){
+      const chunk=ex.bars.slice(i,i+perRow);
+      html+=drawRow(chunk, idx, i===0, i+perRow>=ex.bars.length);
+      idx+=chunk.flat().length;
+    }
+    box.innerHTML=html;
+  });
+  bindNotes();
+}
+
+/* ---------- 聲音 ---------- */
+let ac=null;
+function ctx(){ if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)();
+                if(ac.state==='suspended') ac.resume(); return ac; }
+function tone(freq,t0,dur){
+  const a=ctx(), g=a.createGain();
+  g.gain.setValueAtTime(0,t0);
+  g.gain.linearRampToValueAtTime(.22,t0+.03);
+  g.gain.setValueAtTime(.22,t0+dur-.08);
+  g.gain.linearRampToValueAtTime(0,t0+dur);
+  g.connect(a.destination);
+  [['sine',1,.9],['triangle',1,.28],['sine',2,.08]].forEach(([type,mul,amp])=>{
+    const o=a.createOscillator(), og=a.createGain();
+    o.type=type; o.frequency.value=freq*mul; og.gain.value=amp;
+    o.connect(og); og.connect(g); o.start(t0); o.stop(t0+dur+.02);
+  });
+}
+
+function bindNotes(){
+  document.querySelectorAll('.nh').forEach(n=>{
+    n.addEventListener('pointerdown',()=>{ tone(FREQ[n.dataset.p], ctx().currentTime, .55); });
+  });
+}
+document.querySelectorAll('.chip[data-pitch]').forEach(c=>{
+  c.addEventListener('click',()=>tone(FREQ[c.dataset.pitch], ctx().currentTime, .8));
+});
+
+/* ---------- 播放整段 ---------- */
+let timer=null, current=null;
+function stopAll(){
+  if(timer){ clearInterval(timer); timer=null; }
+  document.querySelectorAll('.play').forEach(b=>{ b.dataset.on='0'; b.textContent='▶ 播放'; });
+  document.querySelectorAll('.nh').forEach(n=>n.classList.remove('dim'));
+  current=null;
+}
+function playEx(ei,btn){
+  const wasOn = btn.dataset.on==='1';
+  stopAll();
+  if(wasOn) return;
+  const a=ctx(), notes=EXERCISES[ei].bars.flat(), spb=60/BPM;
+  let t=a.currentTime+.12, marks=[];
+  notes.forEach(([p,d])=>{ const dur=d*spb; marks.push({t:t, end:t+dur, i:marks.length, p:p});
+    tone(FREQ[p], t, dur-.06); t+=dur; });
+  const endAt=t;
+  btn.dataset.on='1'; btn.textContent='■ 停止';
+  const group=document.querySelectorAll('#st-'+ei+' .nh');
+  timer=setInterval(()=>{
+    const now=a.currentTime;
+    if(now>endAt){ stopAll(); return; }
+    const k=marks.findIndex(m=>now>=m.t&&now<m.end);
+    group.forEach((n,j)=>n.classList.toggle('dim', k>=0 && j!==k));
+  },40);
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.play');
+  if(b && b.dataset.ex!==undefined) playEx(+b.dataset.ex, b);
+});
+
+/* ---------- 啟動 ---------- */
+renderAll();
+let rt=null;
+window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ stopAll(); renderAll(); },180); });
+</script>
+
+<script>
+/* ===== 練習檢核表:打勾記在這台裝置上 ===== */
+(function(){
+  var KEY='sila-check-v1';
+  var ITEMS=[['a','每個音吹得出聲音'],['b','拍子數得準'],['c','整段不停下來吹完']];
+  var state={};
+  try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch(e) { state = {}; }
+
+  var rows=document.getElementById('ck-rows');
+  var countEl=document.getElementById('ck-count');
+  var msgEl=document.getElementById('ck-msg');
+  var total=EXERCISES.length*ITEMS.length;
+
+  function save(){
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e) {}
+  }
+  function refresh(){
+    var done=0, k;
+    for (k in state) { if (state[k]) done++; }
+    countEl.textContent='完成 '+done+' / '+total;
+    msgEl.textContent = done===0 ? '每一段都要三個都打勾,才算真的會了。'
+      : done>=total ? '全部打勾了!五段都吹得起來,很厲害 🎉'
+      : '還有 '+(total-done)+' 個沒打勾,繼續加油。';
+  }
+
+  EXERCISES.forEach(function(ex, ei){
+    var row=document.createElement('div'); row.className='ck-row';
+    var name=document.createElement('div'); name.className='ck-name';
+    name.textContent=ex.title;
+    row.appendChild(name);
+    var items=document.createElement('div'); items.className='ck-items';
+    ITEMS.forEach(function(it){
+      var key=ei+'-'+it[0];
+      var lab=document.createElement('label'); lab.className='ck';
+      var cb=document.createElement('input');
+      cb.type='checkbox'; cb.id='ck-'+key; cb.checked=!!state[key];
+      var box=document.createElement('span'); box.className='box';
+      var txt=document.createElement('span'); txt.textContent=it[1];
+      lab.appendChild(cb); lab.appendChild(box); lab.appendChild(txt);
+      if (cb.checked) lab.classList.add('on');
+      cb.addEventListener('change', function(){
+        state[key]=cb.checked;
+        lab.classList.toggle('on', cb.checked);
+        save(); refresh();
+      });
+      items.appendChild(lab);
+    });
+    row.appendChild(items);
+    rows.appendChild(row);
+  });
+
+  document.getElementById('ck-reset').addEventListener('click', function(){
+    state={}; save();
+    rows.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+      cb.checked=false; cb.parentNode.classList.remove('on');
+    });
+    refresh();
+  });
+
+  refresh();
+})();
+</script>
+
+</body></html>
